@@ -104,6 +104,7 @@ function App() {
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [plansOpen, setPlansOpen] = useState(false);
   const [user, setUser] = useState(null);
+  const [authMessage, setAuthMessage] = useState("");
   const [cloudReady, setCloudReady] = useState(!cloudEnabled);
   useEffect(() => {
     if (!cloudEnabled) return;
@@ -123,9 +124,13 @@ function App() {
     localStorage.setItem(K, JSON.stringify(d));
     if (user && cloudReady) supabase.from("app_state").upsert({ user_id: user.id, data: d, updated_at: new Date().toISOString() });
   }, [d, user, cloudReady]);
-  const signIn = async (email) => {
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
-    alert(error ? error.message : "Check your email for the secure sign-in link.");
+  const signIn = async (event, create = false) => {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget), email = values.get("email"), password = values.get("password");
+    const response = create
+      ? await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } })
+      : await supabase.auth.signInWithPassword({ email, password });
+    setAuthMessage(response.error ? response.error.message : create ? "Account created. Confirm your email once, then sign in." : "Signed in. Syncing your data...");
   };
   const p = d.portfolios.find((x) => x.id === d.selected),
     up = (f) =>
@@ -203,6 +208,8 @@ function App() {
       if (plan) plan.last = "";
     });
   };
+  if (!cloudEnabled) return <main className="auth-gate"><section><b>MY EXPENSIA</b><h1>Cloud setup required</h1><p>This protected app needs its Supabase configuration before it can open.</p></section></main>;
+  if (!user) return <main className="auth-gate"><section><b>MY EXPENSIA</b><h1>Sign in to your finance data</h1><p>Your portfolios and transactions are private to your account.</p><form className="auth-form" onSubmit={signIn}><input name="email" type="email" placeholder="Email address" required /><input name="password" type="password" placeholder="Password" minLength="6" required /><button>Sign in</button><button type="button" className="secondary" onClick={(event) => signIn({ preventDefault: () => {}, currentTarget: event.currentTarget.form }, true)}>Create account</button>{authMessage && <small>{authMessage}</small>}</form></section></main>;
   return (
     <div className="app">
       <aside>
@@ -222,14 +229,14 @@ function App() {
             <b>PERSONAL FINANCE</b>
             <h2>{tab}</h2>
           </div>
-          <select
+          <div className="header-actions"><button className="cloud-status" title={`Cloud account: ${user.email}`} onClick={() => setTab("Settings")}>☁</button><select
             value={p.id}
             onChange={(e) => up((x) => (x.selected = e.target.value))}
           >
             {d.portfolios.map((x) => (
               <option value={x.id}>{x.name}</option>
             ))}
-          </select>
+          </select></div>
         </header>
         {tab === "Home" && (
           <>
@@ -369,14 +376,7 @@ function App() {
             <h3>Cloud sync</h3>
             {!cloudEnabled ? (
               <p>Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to a `.env` file, then restart the app.</p>
-            ) : user ? (
-              <><p>Connected as {user.email}. Your data is syncing securely across browsers.</p><button onClick={() => supabase.auth.signOut()}>Sign out</button></>
-            ) : (
-              <form className="cloud-login" onSubmit={(event) => { event.preventDefault(); signIn(new FormData(event.currentTarget).get("email")); }}>
-                <input name="email" type="email" placeholder="Your email address" required />
-                <button>Send secure sign-in link</button>
-              </form>
-            )}
+            ) : <><p>Connected as {user.email}. Your data is syncing securely across browsers.</p><button onClick={() => supabase.auth.signOut()}>Sign out</button></>}
             <h3>Portfolios</h3>
             {d.portfolios.map((x) => (
               <label>

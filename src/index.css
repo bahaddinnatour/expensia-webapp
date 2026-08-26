@@ -2,7 +2,7 @@
   box-sizing: border-box;
 }
 
-.cloud-login{display:flex;gap:8px}.cloud-login input{flex:1}
+.auth-gate{min-height:100vh;display:grid;place-items:center;background:linear-gradient(135deg,#143e38,#287362);padding:24px}.auth-gate section{width:min(420px,100%);background:#f7f5ef;padding:32px;border-radius:18px;box-shadow:0 20px 50px #0004}.auth-gate h1{font-size:28px}.auth-form{display:grid;gap:10px;margin-top:24px}.auth-form small{color:#56716a}.secondary{background:#dce9e4;color:#173e36}.header-actions{display:flex;gap:10px;align-items:center}.cloud-status{background:#1976d2;font-size:20px;line-height:1;padding:8px 11px}
 
 .caps-toggle {
   display: flex;
