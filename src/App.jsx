@@ -96,6 +96,28 @@ const readData = () => {
     return seed;
   }
 };
+const fromFlutterState = (state) => ({
+  selected: state.selectedId || "default",
+  profile: state.name || "",
+  categories: state.categories || cats,
+  portfolios: (state.portfolios || []).map((portfolio) => ({
+    id: portfolio.id,
+    name: portfolio.name,
+    currency: String(portfolio.currency || "sar").toUpperCase(),
+    opening: portfolio.opening || 0,
+    caps: portfolio.categoryCaps || {},
+    transactions: portfolio.transactions || [],
+  })),
+  plans: (state.monthlyPlans || []).map((plan) => ({
+    id: plan.id,
+    description: plan.description,
+    category: plan.category,
+    amount: plan.amount,
+    savings: Boolean(plan.savingsTransfer),
+    destinationId: plan.destinationPortfolioId,
+    last: plan.lastCreatedMonth || "",
+  })),
+});
 function App() {
   const [d, setD] = useState(readData),
     [tab, setTab] = useState("Home"),
@@ -115,8 +137,10 @@ function App() {
   useEffect(() => {
     if (!user) return;
     (async () => {
+      const { data: mobile } = await supabase.from("flutter_app_state").select("data").eq("user_id", user.id).maybeSingle();
       const { data: saved } = await supabase.from("app_state").select("data").eq("user_id", user.id).maybeSingle();
-      if (saved?.data?.portfolios) setD(saved.data);
+      if (mobile?.data?.portfolios) setD(fromFlutterState(mobile.data));
+      else if (saved?.data?.portfolios) setD(saved.data);
       setCloudReady(true);
     })();
   }, [user]);
