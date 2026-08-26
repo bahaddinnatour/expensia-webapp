@@ -1,0 +1,636 @@
+import { useEffect, useState } from "react";
+import "./index.css";
+import { cloudEnabled, supabase } from "./supabase";
+const K = "expensia-web",
+  cats = [
+    "Grocery",
+    "Bills",
+    "Shopping",
+    "Online shopping",
+    "Salary",
+    "Investment",
+    "Pets",
+    "Restaurant",
+    "Telecommunication",
+    "Car care",
+    "Toys and gifts",
+    "Electronics",
+    "Personal transfer",
+    "Utilities",
+    "Other",
+    "Rent & Housing",
+    "Education",
+    "Dependents",
+    "Loans & Debt",
+    "Household Help",
+  ],
+  icon = {
+    Grocery: "🛒",
+    Bills: "🧾",
+    Shopping: "🛍️",
+    Salary: "💼",
+    Pets: "🐾",
+    Restaurant: "🍽️",
+    Utilities: "💡",
+    "Rent & Housing": "🏠",
+    Education: "🎓",
+    Dependents: "👨‍👩‍👧",
+    "Loans & Debt": "🏦",
+    "Car care": "🚗",
+  };
+const id = () => crypto.randomUUID(),
+  mo = () => new Date().toISOString().slice(0, 7),
+  seed = {
+    selected: "main",
+    profile: "",
+    categories: cats,
+    portfolios: [
+      {
+        id: "main",
+        name: "My portfolio",
+        currency: "SAR",
+        opening: 0,
+        caps: {},
+        transactions: [],
+      },
+      {
+        id: "save",
+        name: "Savings / Reserves",
+        currency: "SAR",
+        opening: 0,
+        caps: {},
+        transactions: [],
+      },
+    ],
+    plans: [
+      ["Rent reserve", "Rent & Housing", 5833, 1],
+      ["School fees reserve", "Education", 2250, 1],
+      ["Dependent fees reserve", "Dependents", 1250, 1],
+      ["Existing loan installment", "Loans & Debt", 5431],
+      ["Company loan installment", "Loans & Debt", 3750],
+      ["Housemaid", "Household Help", 1000],
+      ["Groceries & food", "Grocery", 3000],
+      ["Utilities & telecom", "Utilities", 1500],
+      ["Two cars", "Car care", 1800],
+      ["Family personal expenses", "Personal transfer", 1000],
+      ["Restaurants & entertainment", "Restaurant", 500],
+    ].map((x, i) => ({
+      id: id(),
+      description: x[0],
+      category: x[1],
+      amount: x[2],
+      savings: !!x[3],
+      last: "",
+    })),
+  };
+const fmt = (p, n) =>
+  new Intl.NumberFormat("en", {
+    style: "currency",
+    currency: p.currency,
+  }).format(n);
+const readData = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(K) || "null");
+    return saved?.portfolios ? saved : seed;
+  } catch {
+    return seed;
+  }
+};
+function App() {
+  const [d, setD] = useState(readData),
+    [tab, setTab] = useState("Home"),
+    [form, setForm] = useState(null);
+  const [capsOpen, setCapsOpen] = useState(false);
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [plansOpen, setPlansOpen] = useState(false);
+  const [user, setUser] = useState(null);
+  const [cloudReady, setCloudReady] = useState(!cloudEnabled);
+  useEffect(() => {
+    if (!cloudEnabled) return;
+    supabase.auth.getSession().then(({ data }) => setUser(data.session?.user || null));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setUser(session?.user || null));
+    return () => listener.subscription.unsubscribe();
+  }, []);
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const { data: saved } = await supabase.from("app_state").select("data").eq("user_id", user.id).maybeSingle();
+      if (saved?.data?.portfolios) setD(saved.data);
+      setCloudReady(true);
+    })();
+  }, [user]);
+  useEffect(() => {
+    localStorage.setItem(K, JSON.stringify(d));
+    if (user && cloudReady) supabase.from("app_state").upsert({ user_id: user.id, data: d, updated_at: new Date().toISOString() });
+  }, [d, user, cloudReady]);
+  const signIn = async (email) => {
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
+    alert(error ? error.message : "Check your email for the secure sign-in link.");
+  };
+  const p = d.portfolios.find((x) => x.id === d.selected),
+    up = (f) =>
+      setD((x) => {
+        const next = structuredClone(x);
+        f(next);
+        return next;
+      }),
+    bal = (x) =>
+      x.opening +
+      x.transactions.reduce((s, t) => s + (t.inflow ? t.amount : -t.amount), 0),
+    add = (e) => {
+      e.preventDefault();
+      let v = Object.fromEntries(new FormData(e.target)),
+        q = d.portfolios.find((x) => x.id === v.portfolio),
+        spent =
+          q.transactions
+            .filter(
+              (t) =>
+                !t.inflow &&
+                t.category === v.category &&
+                t.createdAt.slice(0, 7) === mo(),
+            )
+            .reduce((s, t) => s + t.amount, 0) + +v.amount;
+      if (
+        q.caps[v.category] &&
+        spent >= q.caps[v.category] * 0.9 &&
+        !confirm(
+          `Cap warning: ${((spent / q.caps[v.category]) * 100).toFixed(1)}% used. Save?`,
+        )
+      )
+        return;
+      up((x) =>
+        x.portfolios
+          .find((z) => z.id === v.portfolio)
+          .transactions.unshift({
+            id: id(),
+            description: v.description,
+            category: v.category,
+            amount: +v.amount,
+            inflow: v.type === "in",
+            createdAt: new Date().toISOString(),
+          }),
+      );
+      setForm(null);
+    },
+    out = p.transactions.filter((t) => !t.inflow),
+    total = out.reduce((s, t) => s + t.amount, 0),
+    catsum = Object.entries(
+      out.reduce(
+        (a, t) => ((a[t.category] = (a[t.category] || 0) + t.amount), a),
+        {},
+      ),
+    );
+  const removeTransaction = (transaction) => {
+    if (!confirm("Delete this transaction and reverse its balance effect?")) return;
+    up((next) => {
+      const plan = next.plans.find(
+        (item) =>
+          item.last === mo() &&
+          item.description === transaction.description &&
+          item.amount === transaction.amount,
+      );
+      next.portfolios.forEach((portfolio) => {
+        portfolio.transactions = portfolio.transactions.filter((item) => {
+          if (item.id === transaction.id) return false;
+          return !(
+            plan?.savings &&
+            item.description === plan.description &&
+            item.amount === plan.amount &&
+            item.createdAt.slice(0, 7) === mo()
+          );
+        });
+      });
+      if (plan) plan.last = "";
+    });
+  };
+  return (
+    <div className="app">
+      <aside>
+        <h1>
+          MY <i>EXPENSIA</i>
+        </h1>
+        {["Home", "Report", "Plans", "History", "Settings"].map((x) => (
+          <button className={tab === x ? "on" : ""} onClick={() => setTab(x)}>
+            {x}
+          </button>
+        ))}
+        <small>Local-first personal finance</small>
+      </aside>
+      <main>
+        <header>
+          <div>
+            <b>PERSONAL FINANCE</b>
+            <h2>{tab}</h2>
+          </div>
+          <select
+            value={p.id}
+            onChange={(e) => up((x) => (x.selected = e.target.value))}
+          >
+            {d.portfolios.map((x) => (
+              <option value={x.id}>{x.name}</option>
+            ))}
+          </select>
+        </header>
+        {tab === "Home" && (
+          <>
+            <section className="hero">
+              <div>
+                <small>ACTIVE PORTFOLIO</small>
+                <h2>{p.name}</h2>
+                <strong>{fmt(p, bal(p))}</strong>
+              </div>
+              <div>
+                <button onClick={() => setForm("in")}>+ Inflow</button>
+                <button className="red" onClick={() => setForm("out")}>
+                  − Outflow
+                </button>
+              </div>
+            </section>
+            <section className="stats">
+              <article>
+                INFLOW
+                <b>
+                  {fmt(
+                    p,
+                    p.transactions
+                      .filter((t) => t.inflow)
+                      .reduce((s, t) => s + t.amount, 0),
+                  )}
+                </b>
+              </article>
+              <article>
+                OUTFLOW<b className="redtext">{fmt(p, total)}</b>
+              </article>
+              <article onClick={() => setTab("Report")}>
+                SPENDING PULSE
+                <b>{total ? "View report →" : "No spending yet"}</b>
+              </article>
+            </section>
+            <h3>Recent transactions</h3>
+            <Rows
+              rows={p.transactions.slice(0, 8)}
+              p={p}
+              del={removeTransaction}
+            />
+          </>
+        )}
+        {tab === "Report" && (
+          <>
+            <p>Category outflow in {p.name}</p>
+            {catsum.map(([c, n]) => {
+              let cap = p.caps[c],
+                used = out
+                  .filter(
+                    (t) => t.category === c && t.createdAt.slice(0, 7) === mo(),
+                  )
+                  .reduce((s, t) => s + t.amount, 0),
+                r = cap ? used / cap : n / total;
+              return (
+                <article className="cap">
+                  <span>
+                    {icon[c] || "✨"} {c}
+                  </span>
+                  <b>{fmt(p, n)}</b>
+                  <div>
+                    <i
+                      className={r >= 0.9 ? "over" : ""}
+                      style={{ width: `${Math.min(r, 1) * 100}%` }}
+                    />
+                  </div>
+                  <small>
+                    {cap
+                      ? `${fmt(p, used)} / ${fmt(p, cap)} · ${(r * 100).toFixed(1)}%`
+                      : `${(r * 100).toFixed(1)}% of outflow`}
+                  </small>
+                </article>
+              );
+            })}
+          </>
+        )}
+        {tab === "Plans" &&
+          d.plans.map((x) => (
+            <article className="plan">
+              <span>{x.savings ? "◈" : icon[x.category] || "✨"}</span>
+              <div>
+                <b>{x.description}</b>
+                <small>
+                  {x.savings ? "Savings transfer" : "Regular outflow"} · due day
+                  1
+                </small>
+              </div>
+              <b>{fmt(p, x.amount)}</b>
+              <button
+                disabled={x.last === mo()}
+                onClick={() =>
+                  up((z) => {
+                    let a = z.portfolios.find(
+                      (q) => q.id === (x.portfolioId || "main"),
+                    );
+                    a.transactions.unshift({
+                      id: id(),
+                      description: x.description,
+                      category: x.category,
+                      amount: x.amount,
+                      inflow: false,
+                      createdAt: new Date().toISOString(),
+                    });
+                    if (x.savings)
+                      z.portfolios
+                        .find((q) => q.id === (x.destinationId || "save"))
+                        .transactions.unshift({
+                          id: id(),
+                          description: x.description,
+                          category: x.category,
+                          amount: x.amount,
+                          inflow: true,
+                          createdAt: new Date().toISOString(),
+                        });
+                    z.plans.find((q) => q.id === x.id).last = mo();
+                  })
+                }
+              >
+                {x.last === mo() ? "Created" : "Create now"}
+              </button>
+            </article>
+          ))}
+        {tab === "History" && (
+          <Rows
+            rows={d.portfolios
+              .flatMap((x) =>
+                x.transactions.map((t) => ({ ...t, port: x.name })),
+              )
+              .sort((a, b) => b.createdAt.localeCompare(a.createdAt))}
+            p={p}
+            del={removeTransaction}
+          />
+        )}{" "}
+        {tab === "Settings" && (
+          <section className="settings">
+            <h3>Cloud sync</h3>
+            {!cloudEnabled ? (
+              <p>Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to a `.env` file, then restart the app.</p>
+            ) : user ? (
+              <><p>Connected as {user.email}. Your data is syncing securely across browsers.</p><button onClick={() => supabase.auth.signOut()}>Sign out</button></>
+            ) : (
+              <form className="cloud-login" onSubmit={(event) => { event.preventDefault(); signIn(new FormData(event.currentTarget).get("email")); }}>
+                <input name="email" type="email" placeholder="Your email address" required />
+                <button>Send secure sign-in link</button>
+              </form>
+            )}
+            <h3>Portfolios</h3>
+            {d.portfolios.map((x) => (
+              <label>
+                {x.name}
+                <select
+                  value={x.currency}
+                  onChange={(e) =>
+                    up(
+                      (z) =>
+                        (z.portfolios.find((q) => q.id === x.id).currency =
+                          e.target.value),
+                    )
+                  }
+                >
+                  <option>SAR</option>
+                  <option>USD</option>
+                  <option>JOD</option>
+                </select>
+              </label>
+            ))}
+            <button
+              onClick={() => {
+                let n = prompt("Portfolio name");
+                if (n)
+                  up((x) =>
+                    x.portfolios.push({
+                      id: id(),
+                      name: n,
+                      currency: "SAR",
+                      opening: 0,
+                      caps: {},
+                      transactions: [],
+                    }),
+                  );
+              }}
+            >
+              Add portfolio
+            </button>
+            <button
+              className="caps-toggle"
+              onClick={() => setPlansOpen(!plansOpen)}
+            >
+              Monthly plans <span>{plansOpen ? "-" : "+"}</span>
+            </button>
+            {plansOpen && (
+              <div className="plans-settings">
+                {d.plans.map((plan) => (
+                  <div className="plan-editor" key={plan.id}>
+                    <input
+                      value={plan.description}
+                      onChange={(e) =>
+                        up(
+                          (x) =>
+                            (x.plans.find((q) => q.id === plan.id).description =
+                              e.target.value),
+                        )
+                      }
+                    />
+                    <select
+                      value={plan.category}
+                      onChange={(e) =>
+                        up(
+                          (x) =>
+                            (x.plans.find((q) => q.id === plan.id).category =
+                              e.target.value),
+                        )
+                      }
+                    >
+                      {d.categories.map((c) => (
+                        <option key={c}>{c}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      value={plan.amount}
+                      onChange={(e) =>
+                        up(
+                          (x) =>
+                            (x.plans.find((q) => q.id === plan.id).amount =
+                              +e.target.value),
+                        )
+                      }
+                    />
+                    <select
+                      value={plan.portfolioId || "main"}
+                      onChange={(e) =>
+                        up(
+                          (x) =>
+                            (x.plans.find((q) => q.id === plan.id).portfolioId =
+                              e.target.value),
+                        )
+                      }
+                    >
+                      {d.portfolios.map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.name}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="saving-toggle">
+                      Savings{" "}
+                      <input
+                        type="checkbox"
+                        checked={plan.savings}
+                        onChange={(e) =>
+                          up(
+                            (x) =>
+                              (x.plans.find((q) => q.id === plan.id).savings =
+                                e.target.checked),
+                          )
+                        }
+                      />
+                    </label>
+                    <button
+                      className="delete-plan"
+                      onClick={() =>
+                        up(
+                          (x) =>
+                            (x.plans = x.plans.filter((q) => q.id !== plan.id)),
+                        )
+                      }
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() =>
+                    up((x) =>
+                      x.plans.push({
+                        id: id(),
+                        description: "New monthly plan",
+                        category: x.categories[0],
+                        amount: 0,
+                        savings: false,
+                        portfolioId: x.selected,
+                        last: "",
+                      }),
+                    )
+                  }
+                >
+                  Add monthly plan
+                </button>
+              </div>
+            )}
+            <button
+              className="caps-toggle"
+              onClick={() => setCapsOpen(!capsOpen)}
+            >
+              Monthly category caps <span>{capsOpen ? "-" : "+"}</span>
+            </button>
+            {capsOpen &&
+              d.categories.map((c) => (
+                <label key={c}>
+                  {icon[c] || "•"} {c}
+                  <input
+                    type="number"
+                    placeholder="No cap"
+                    value={p.caps[c] || ""}
+                    onChange={(e) =>
+                      up((x) => {
+                        let v = x.portfolios.find(
+                          (q) => q.id === x.selected,
+                        ).caps;
+                        e.target.value ? (v[c] = +e.target.value) : delete v[c];
+                      })
+                    }
+                  />
+                </label>
+              ))}
+            <button
+              className="caps-toggle"
+              onClick={() => setCategoriesOpen(!categoriesOpen)}
+            >
+              Categories <span>{categoriesOpen ? "-" : "+"}</span>
+            </button>
+            {categoriesOpen && (
+              <div className="categories-settings">
+                <div className="category-list">
+                  {d.categories.map((c) => (
+                    <span key={c}>
+                      {icon[c] || "•"} {c}
+                    </span>
+                  ))}
+                </div>
+                <button
+                  onClick={() => {
+                    let c = prompt("Category name");
+                    if (c && !d.categories.includes(c)) {
+                      up((x) => x.categories.push(c));
+                    }
+                  }}
+                >
+                  Add category
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+      </main>
+      {form && (
+        <div className="modal">
+          <form onSubmit={add}>
+            <h2>Add {form === "in" ? "inflow" : "outflow"}</h2>
+            <input name="description" placeholder="Description" required />
+            <input
+              name="amount"
+              type="number"
+              step=".01"
+              placeholder="Amount"
+              required
+            />
+            <select name="portfolio" defaultValue={p.id}>
+              {d.portfolios.map((x) => (
+                <option value={x.id}>{x.name}</option>
+              ))}
+            </select>
+            <select name="category">
+              {d.categories.map((x) => (
+                <option>{x}</option>
+              ))}
+            </select>
+            <input name="type" value={form} hidden />
+            <button>Save transaction</button>
+            <button type="button" onClick={() => setForm(null)}>
+              Cancel
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+function Rows({ rows, p, del }) {
+  return (
+    <div className="rows">
+      {rows.map((t) => (
+        <article>
+          <span>{icon[t.category] || "✨"}</span>
+          <div>
+            <b>{t.description}</b>
+            <small>
+              {t.port || t.category} · {t.category} ·{" "}
+              {new Date(t.createdAt).toLocaleString("en-GB")}
+            </small>
+          </div>
+          <strong className={t.inflow ? "green" : "redtext"}>
+            {t.inflow ? "+" : "−"}
+            {fmt(p, t.amount)}
+          </strong>
+          <button onClick={() => del(t)}>×</button>
+        </article>
+      ))}
+    </div>
+  );
+}
+export default App;
