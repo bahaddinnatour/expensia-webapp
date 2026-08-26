@@ -163,6 +163,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [authMessage, setAuthMessage] = useState("");
   const [syncError, setSyncError] = useState("");
+  const [apiMessage, setApiMessage] = useState("");
   const mobileStateRef = useRef(null);
   const [cloudReady, setCloudReady] = useState(!cloudEnabled);
   useEffect(() => {
@@ -211,6 +212,20 @@ function App() {
       });
     }
   }, [d, user, cloudReady]);
+  const copyApiToken = async () => {
+    const { data, error } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (error || !token) {
+      setApiMessage("Sign in again to create a new API access token.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(token);
+      setApiMessage("Access token copied. It expires automatically, so do not store it in source code.");
+    } catch (_) {
+      setApiMessage("Clipboard access was blocked. Allow clipboard permission and try again.");
+    }
+  };
   const signIn = async (event, create = false) => {
     event.preventDefault();
     const values = new FormData(event.currentTarget), email = values.get("email"), password = values.get("password");
@@ -479,7 +494,7 @@ function App() {
             <h3>Cloud sync</h3>
             {!cloudEnabled ? (
               <p>Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to a `.env` file, then restart the app.</p>
-            ) : <><p>Connected as {user.email}. Your data is syncing securely across browsers.</p>{syncError && <p className="sync-error">Cloud sync failed: {syncError}</p>}<button onClick={() => supabase.auth.signOut()}>Sign out</button></>}
+            ) : <><p>Connected as {user.email}. Your data is syncing securely across browsers.</p>{syncError && <p className="sync-error">Cloud sync failed: {syncError}</p>}<button type="button" onClick={copyApiToken}>Copy API access token</button>{apiMessage && <p className="api-message">{apiMessage}</p>}<button onClick={() => supabase.auth.signOut()}>Sign out</button></>}
             <h3>Portfolios</h3>
             {d.portfolios.map((x) => (
               <label key={x.id}>
