@@ -171,16 +171,28 @@ function App() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setUser(session?.user || null));
     return () => listener.subscription.unsubscribe();
   }, []);
+  const refreshCloud = async () => {
+    if (!user) return;
+    setCloudReady(false);
+    setSyncError("");
+    const [{ data: mobile, error: mobileError }, { data: saved, error: savedError }] = await Promise.all([
+      supabase.from("flutter_app_state").select("data, updated_at").eq("user_id", user.id).maybeSingle(),
+      supabase.from("app_state").select("data, updated_at").eq("user_id", user.id).maybeSingle(),
+    ]);
+    const error = mobileError || savedError;
+    if (error) {
+      setSyncError(error.message);
+      setCloudReady(true);
+      return;
+    }
+    if (mobile?.data?.portfolios) mobileStateRef.current = mobile.data;
+    if (saved?.data?.portfolios && (!mobile?.data?.portfolios || saved.updated_at > mobile.updated_at)) setD(saved.data);
+    else if (mobile?.data?.portfolios) setD(fromFlutterState(mobile.data));
+    setCloudReady(true);
+  };
   useEffect(() => {
     if (!user) return;
-    (async () => {
-      const { data: mobile } = await supabase.from("flutter_app_state").select("data, updated_at").eq("user_id", user.id).maybeSingle();
-      const { data: saved } = await supabase.from("app_state").select("data, updated_at").eq("user_id", user.id).maybeSingle();
-      if (mobile?.data?.portfolios) mobileStateRef.current = mobile.data;
-      if (saved?.data?.portfolios && (!mobile?.data?.portfolios || saved.updated_at > mobile.updated_at)) setD(saved.data);
-      else if (mobile?.data?.portfolios) setD(fromFlutterState(mobile.data));
-      setCloudReady(true);
-    })();
+    refreshCloud();
   }, [user]);
   useEffect(() => {
     sessionStorage.setItem(K, JSON.stringify(d));
@@ -306,7 +318,15 @@ function App() {
         ))}
         <small>Local-first personal finance</small>
       </aside>
-      <main>
+      <main
+        onClickCapture={(event) => {
+          if (event.target.closest?.(".cloud-status")) {
+            event.preventDefault();
+            event.stopPropagation();
+            refreshCloud();
+          }
+        }}
+      >
         <header>
           <div>
             <b>PERSONAL FINANCE</b>
