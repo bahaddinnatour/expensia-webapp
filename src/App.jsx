@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import "./index.css";
 import { cloudEnabled, supabase } from "./supabase";
-const K = "expensia-web",
+const K = "expensia-web-session",
   cats = [
     "Grocery",
     "Bills",
@@ -90,7 +90,7 @@ const fmt = (p, n) =>
   }).format(n);
 const readData = () => {
   try {
-    const saved = JSON.parse(localStorage.getItem(K) || "null");
+    const saved = JSON.parse(sessionStorage.getItem(K) || "null");
     return saved?.portfolios ? saved : seed;
   } catch {
     return seed;
@@ -132,6 +132,27 @@ const toFlutterState = (data, previous) => ({
     return { ...existing, id: plan.id, description: plan.description, category: plan.category, amount: plan.amount, savingsTransfer: Boolean(plan.savings), destinationPortfolioId: plan.destinationId || existing.destinationPortfolioId, portfolioId: existing.portfolioId || data.selected, dueDay: existing.dueDay || 1, recurring: existing.recurring ?? true, lastCreatedMonth: plan.last || null };
   }),
 });
+const toSharedRecords = (userId, data) => [
+  { user_id: userId, record_type: "profile", record_id: "settings", payload: { name: data.profile, selectedId: data.selected } },
+  { user_id: userId, record_type: "category", record_id: "all", payload: { categories: data.categories, icons: {} } },
+  ...data.portfolios.flatMap((portfolio) => [
+    { user_id: userId, record_type: "portfolio", record_id: portfolio.id, payload: { id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), categoryCaps: portfolio.caps || {} } },
+    ...portfolio.transactions.map((transaction) => ({ user_id: userId, record_type: "transaction", record_id: transaction.id, payload: { ...transaction, portfolioId: portfolio.id }, deleted_at: null })),
+  ]),
+  ...data.plans.map((plan) => ({ user_id: userId, record_type: "plan", record_id: plan.id, payload: { ...plan, savingsTransfer: Boolean(plan.savings), lastCreatedMonth: plan.last || null } })),
+];
+const syncSharedRecords = async (userId, data) => {
+  const records = toSharedRecords(userId, data);
+  const activeTransactionIds = new Set(records.filter((record) => record.record_type === "transaction").map((record) => record.record_id));
+  const { data: storedTransactions, error: readError } = await supabase.from("finance_records").select("record_id").eq("user_id", userId).eq("record_type", "transaction");
+  if (readError) return { error: readError };
+  const removed = (storedTransactions || []).filter((record) => !activeTransactionIds.has(record.record_id));
+  const results = await Promise.all([
+    supabase.from("finance_records").upsert(records),
+    ...removed.map((record) => supabase.from("finance_records").update({ deleted_at: new Date().toISOString() }).eq("user_id", userId).eq("record_type", "transaction").eq("record_id", record.record_id)),
+  ]);
+  return results.find((result) => result.error) || { error: null };
+};
 function App() {
   const [d, setD] = useState(readData),
     [tab, setTab] = useState("Home"),
@@ -141,6 +162,7 @@ function App() {
   const [plansOpen, setPlansOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [authMessage, setAuthMessage] = useState("");
+  const [syncError, setSyncError] = useState("");
   const mobileStateRef = useRef(null);
   const [cloudReady, setCloudReady] = useState(!cloudEnabled);
   useEffect(() => {
@@ -152,27 +174,35 @@ function App() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const { data: mobile } = await supabase.from("flutter_app_state").select("data").eq("user_id", user.id).maybeSingle();
-      const { data: saved } = await supabase.from("app_state").select("data").eq("user_id", user.id).maybeSingle();
-      if (mobile?.data?.portfolios) { mobileStateRef.current = mobile.data; setD(fromFlutterState(mobile.data)); }
-      else if (saved?.data?.portfolios) setD(saved.data);
+      const { data: mobile } = await supabase.from("flutter_app_state").select("data, updated_at").eq("user_id", user.id).maybeSingle();
+      const { data: saved } = await supabase.from("app_state").select("data, updated_at").eq("user_id", user.id).maybeSingle();
+      if (mobile?.data?.portfolios) mobileStateRef.current = mobile.data;
+      if (saved?.data?.portfolios && (!mobile?.data?.portfolios || saved.updated_at > mobile.updated_at)) setD(saved.data);
+      else if (mobile?.data?.portfolios) setD(fromFlutterState(mobile.data));
       setCloudReady(true);
     })();
   }, [user]);
   useEffect(() => {
-    localStorage.setItem(K, JSON.stringify(d));
+    sessionStorage.setItem(K, JSON.stringify(d));
     if (user && cloudReady) {
-      supabase.from("app_state").upsert({ user_id: user.id, data: d, updated_at: new Date().toISOString() });
+      const writes = [supabase.from("app_state").upsert({ user_id: user.id, data: d, updated_at: new Date().toISOString() })];
       if (mobileStateRef.current) {
         const mobileData = toFlutterState(d, mobileStateRef.current);
         mobileStateRef.current = mobileData;
-        supabase.from("flutter_app_state").upsert({ user_id: user.id, data: mobileData, updated_at: new Date().toISOString() });
+        writes.push(supabase.from("flutter_app_state").upsert({ user_id: user.id, data: mobileData, updated_at: new Date().toISOString() }));
       }
+      writes.push(syncSharedRecords(user.id, d));
+      Promise.all(writes).then((results) => {
+        const error = results.find((result) => result.error)?.error?.message || "";
+        setSyncError(error);
+        if (!error) localStorage.removeItem("expensia-web");
+      });
     }
   }, [d, user, cloudReady]);
   const signIn = async (event, create = false) => {
     event.preventDefault();
     const values = new FormData(event.currentTarget), email = values.get("email"), password = values.get("password");
+    if (create && password.length < 12) return setAuthMessage("Use at least 12 characters for a new password.");
     const response = create
       ? await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } })
       : await supabase.auth.signInWithPassword({ email, password });
@@ -254,8 +284,15 @@ function App() {
       if (plan) plan.last = "";
     });
   };
+  const resetPortfolio = (portfolio) => {
+    if (!confirm(`Reset ${portfolio.name}? This permanently clears its transactions and restores its opening balance. Category caps and portfolio settings will stay.`)) return;
+    up((next) => {
+      next.portfolios.find((item) => item.id === portfolio.id).transactions = [];
+      next.plans = next.plans.map((plan) => (plan.portfolioId || "main") === portfolio.id ? { ...plan, last: "" } : plan);
+    });
+  };
   if (!cloudEnabled) return <main className="auth-gate"><section><b>MY EXPENSIA</b><h1>Cloud setup required</h1><p>This protected app needs its Supabase configuration before it can open.</p></section></main>;
-  if (!user) return <main className="auth-gate"><section><b>MY EXPENSIA</b><h1>Sign in to your finance data</h1><p>Your portfolios and transactions are private to your account.</p><form className="auth-form" onSubmit={signIn}><input name="email" type="email" placeholder="Email address" required /><input name="password" type="password" placeholder="Password" minLength="6" required /><button>Sign in</button><button type="button" className="secondary" onClick={(event) => signIn({ preventDefault: () => {}, currentTarget: event.currentTarget.form }, true)}>Create account</button>{authMessage && <small>{authMessage}</small>}</form></section></main>;
+  if (!user) return <main className="auth-gate"><section><b>MY EXPENSIA</b><h1>Sign in to your finance data</h1><p>Your portfolios and transactions are private to your account.</p><form className="auth-form" onSubmit={signIn}><input name="email" type="email" autoComplete="email" placeholder="Email address" required /><input name="password" type="password" autoComplete="current-password" placeholder="Password" minLength="6" required /><button>Sign in</button><button type="button" className="secondary" onClick={(event) => signIn({ preventDefault: () => {}, currentTarget: event.currentTarget.form }, true)}>Create account</button>{authMessage && <small>{authMessage}</small>}</form></section></main>;
   return (
     <div className="app">
       <aside>
@@ -422,25 +459,25 @@ function App() {
             <h3>Cloud sync</h3>
             {!cloudEnabled ? (
               <p>Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to a `.env` file, then restart the app.</p>
-            ) : <><p>Connected as {user.email}. Your data is syncing securely across browsers.</p><button onClick={() => supabase.auth.signOut()}>Sign out</button></>}
+            ) : <><p>Connected as {user.email}. Your data is syncing securely across browsers.</p>{syncError && <p className="sync-error">Cloud sync failed: {syncError}</p>}<button onClick={() => supabase.auth.signOut()}>Sign out</button></>}
             <h3>Portfolios</h3>
             {d.portfolios.map((x) => (
-              <label>
+              <label key={x.id}>
                 {x.name}
-                <select
-                  value={x.currency}
-                  onChange={(e) =>
-                    up(
-                      (z) =>
-                        (z.portfolios.find((q) => q.id === x.id).currency =
-                          e.target.value),
-                    )
-                  }
-                >
-                  <option>SAR</option>
-                  <option>USD</option>
-                  <option>JOD</option>
-                </select>
+                <span className="portfolio-controls"><select
+                    value={x.currency}
+                    onChange={(e) =>
+                      up(
+                        (z) =>
+                          (z.portfolios.find((q) => q.id === x.id).currency =
+                            e.target.value),
+                      )
+                    }
+                  >
+                    <option>SAR</option>
+                    <option>USD</option>
+                    <option>JOD</option>
+                  </select><button type="button" className="reset-portfolio" onClick={() => resetPortfolio(x)}>Reset data</button></span>
               </label>
             ))}
             <button

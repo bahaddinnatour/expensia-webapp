@@ -241,6 +241,8 @@ h2 {
   justify-content: space-between;
   align-items: center;
 }
+.portfolio-controls { display: flex; align-items: center; gap: 8px; }
+.reset-portfolio { background: #b42318; }
 .modal {
   position: fixed;
   inset: 0;
@@ -285,3 +287,4 @@ h2 {
     flex-wrap: wrap;
   }
 }
+.sync-error { color: #b42318; font-weight: 700; }
