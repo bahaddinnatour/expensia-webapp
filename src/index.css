@@ -226,6 +226,13 @@ h2 {
 .rows article div {
   flex: 1;
 }
+.rows article b {
+  display: block;
+  margin-bottom: 4px;
+}
+.rows article small {
+  display: block;
+}
 .rows button {
   background: none;
   color: #a33;
