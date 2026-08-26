@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./index.css";
 import { cloudEnabled, supabase } from "./supabase";
 const K = "expensia-web",
@@ -118,6 +118,20 @@ const fromFlutterState = (state) => ({
     last: plan.lastCreatedMonth || "",
   })),
 });
+const toFlutterState = (data, previous) => ({
+  ...previous,
+  name: data.profile || previous.name || "",
+  selectedId: data.selected,
+  categories: data.categories,
+  portfolios: data.portfolios.map((portfolio) => {
+    const existing = (previous.portfolios || []).find((item) => item.id === portfolio.id) || {};
+    return { ...existing, id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), categoryCaps: portfolio.caps || {}, transactions: portfolio.transactions || [] };
+  }),
+  monthlyPlans: data.plans.map((plan) => {
+    const existing = (previous.monthlyPlans || []).find((item) => item.id === plan.id) || {};
+    return { ...existing, id: plan.id, description: plan.description, category: plan.category, amount: plan.amount, savingsTransfer: Boolean(plan.savings), destinationPortfolioId: plan.destinationId || existing.destinationPortfolioId, portfolioId: existing.portfolioId || data.selected, dueDay: existing.dueDay || 1, recurring: existing.recurring ?? true, lastCreatedMonth: plan.last || null };
+  }),
+});
 function App() {
   const [d, setD] = useState(readData),
     [tab, setTab] = useState("Home"),
@@ -127,6 +141,7 @@ function App() {
   const [plansOpen, setPlansOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [authMessage, setAuthMessage] = useState("");
+  const mobileStateRef = useRef(null);
   const [cloudReady, setCloudReady] = useState(!cloudEnabled);
   useEffect(() => {
     if (!cloudEnabled) return;
@@ -139,14 +154,21 @@ function App() {
     (async () => {
       const { data: mobile } = await supabase.from("flutter_app_state").select("data").eq("user_id", user.id).maybeSingle();
       const { data: saved } = await supabase.from("app_state").select("data").eq("user_id", user.id).maybeSingle();
-      if (mobile?.data?.portfolios) setD(fromFlutterState(mobile.data));
+      if (mobile?.data?.portfolios) { mobileStateRef.current = mobile.data; setD(fromFlutterState(mobile.data)); }
       else if (saved?.data?.portfolios) setD(saved.data);
       setCloudReady(true);
     })();
   }, [user]);
   useEffect(() => {
     localStorage.setItem(K, JSON.stringify(d));
-    if (user && cloudReady) supabase.from("app_state").upsert({ user_id: user.id, data: d, updated_at: new Date().toISOString() });
+    if (user && cloudReady) {
+      supabase.from("app_state").upsert({ user_id: user.id, data: d, updated_at: new Date().toISOString() });
+      if (mobileStateRef.current) {
+        const mobileData = toFlutterState(d, mobileStateRef.current);
+        mobileStateRef.current = mobileData;
+        supabase.from("flutter_app_state").upsert({ user_id: user.id, data: mobileData, updated_at: new Date().toISOString() });
+      }
+    }
   }, [d, user, cloudReady]);
   const signIn = async (event, create = false) => {
     event.preventDefault();
