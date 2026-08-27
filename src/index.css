@@ -272,6 +272,16 @@ h2 {
   color: #b42318;
   border: 1px solid #e2b6b1;
 }
+.remove-cap {
+  margin-left: 8px;
+  background: #fff;
+  color: #b42318;
+  border: 1px solid #e2b6b1;
+}
+.remove-cap:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
 .modal {
   position: fixed;
   inset: 0;

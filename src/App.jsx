@@ -802,6 +802,18 @@ function App() {
                       })
                     }
                   />
+                  <button
+                    type="button"
+                    className="remove-cap"
+                    disabled={!p.caps[c]}
+                    onClick={() =>
+                      up((x) => {
+                        delete x.portfolios.find((q) => q.id === x.selected).caps[c];
+                      })
+                    }
+                  >
+                    Remove cap
+                  </button>
                 </label>
               ))}
             <button
