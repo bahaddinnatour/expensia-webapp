@@ -569,7 +569,9 @@ function App() {
             </section>
             <h3>Recent transactions</h3>
             <Rows
-              rows={p.transactions.slice(0, 8)}
+              rows={[...p.transactions]
+                .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+                .slice(0, 8)}
               p={p}
               del={removeTransaction}
               edit={(transaction) => setEditing({ transaction, portfolioId: p.id })}
