@@ -219,6 +219,7 @@ function App() {
   const [d, setD] = useState(readData),
     [tab, setTab] = useState("Home"),
     [form, setForm] = useState(null);
+  const [recentScope, setRecentScope] = useState("portfolio");
   const [editing, setEditing] = useState(null);
   const [capsOpen, setCapsOpen] = useState(false);
   const [capsShared, setCapsShared] = useState(false);
@@ -583,14 +584,14 @@ function App() {
                 <b>{total ? "View report →" : "No spending yet"}</b>
               </article>
             </section>
-            <h3>Recent transactions</h3>
+            <div className="recent-heading"><h3>Recent transactions</h3><div className="scope-switch"><button className={recentScope === "portfolio" ? "on" : ""} onClick={() => setRecentScope("portfolio")}>This portfolio</button><button className={recentScope === "global" ? "on" : ""} onClick={() => setRecentScope("global")}>All portfolios</button></div></div>
             <Rows
-              rows={[...p.transactions]
+              rows={(recentScope === "global" ? d.portfolios.flatMap((portfolio) => portfolio.transactions.map((transaction) => ({ ...transaction, sourcePortfolio: portfolio }))) : p.transactions.map((transaction) => ({ ...transaction, sourcePortfolio: p })))
                 .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
                 .slice(0, 8)}
               p={p}
               del={removeTransaction}
-              edit={(transaction) => setEditing({ transaction, portfolioId: p.id })}
+              edit={(transaction) => setEditing({ transaction, portfolioId: transaction.sourcePortfolio?.id || p.id })}
             />
           </>
         )}
@@ -984,6 +985,7 @@ function Rows({ rows, p, del, edit }) {
           <span>{icon[t.category] || "✨"}</span>
           <div>
             <b>{t.description}</b>
+            {t.sourcePortfolio && <small className="source-portfolio">{t.sourcePortfolio.name}</small>}
             <small>
               {t.port || t.category} · {t.category} ·{" "}
               {new Date(t.createdAt).toLocaleString("en-GB")}
@@ -991,7 +993,7 @@ function Rows({ rows, p, del, edit }) {
           </div>
           <strong className={t.inflow ? "green" : "redtext"}>
             {t.inflow ? "+" : "−"}
-            {fmt(p, t.amount)}
+            {fmt(t.sourcePortfolio || p, t.amount)}
           </strong>
           <button type="button" onClick={() => edit(t)}>Edit</button>
           <button onClick={() => del(t)}>×</button>

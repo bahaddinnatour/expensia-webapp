@@ -249,6 +249,11 @@ h2 {
 .rows article small {
   display: block;
 }
+.recent-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.scope-switch { display: flex; padding: 3px; gap: 3px; border-radius: 8px; background: #e8f1ed; }
+.scope-switch button { background: transparent; color: #326056; padding: 6px 9px; font-size: 11px; }
+.scope-switch button.on { background: #167662; color: #fff; }
+.source-portfolio { color: #167662; font-weight: 700; margin-top: 2px; }
 .rows button {
   background: none;
   color: #a33;
