@@ -267,6 +267,11 @@ h2 {
 .portfolio-controls { display: flex; align-items: center; gap: 8px; }
 .portfolio-name { max-width: 220px; }
 .reset-portfolio { background: #b42318; }
+.delete-portfolio {
+  background: #fff;
+  color: #b42318;
+  border: 1px solid #e2b6b1;
+}
 .modal {
   position: fixed;
   inset: 0;

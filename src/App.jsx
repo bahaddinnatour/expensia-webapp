@@ -377,6 +377,44 @@ function App() {
       next.plans = next.plans.map((plan) => (plan.portfolioId || "main") === portfolio.id ? { ...plan, last: "", skipped: "" } : plan);
     });
   };
+  const deletePortfolio = (portfolio) => {
+    const replacement = d.portfolios.find((item) =>
+      item.id !== portfolio.id && item.name === "My portfolio SNB",
+    ) || d.portfolios.find((item) => item.id !== portfolio.id);
+    if (!replacement) {
+      alert("Create another portfolio before deleting this one.");
+      return;
+    }
+    if (!confirm(`Delete ${portfolio.name} and all of its transactions? ${replacement.name} will become the active portfolio.`)) return;
+    const transactionIds = portfolio.transactions.map((transaction) => transaction.id);
+    const planIds = d.plans
+      .filter((plan) => plan.portfolioId === portfolio.id || plan.destinationId === portfolio.id)
+      .map((plan) => plan.id);
+    up((next) => {
+      next.portfolios = next.portfolios.filter((item) => item.id !== portfolio.id);
+      next.plans = next.plans.filter((plan) =>
+        plan.portfolioId !== portfolio.id && plan.destinationId !== portfolio.id,
+      );
+      next.selected = replacement.id;
+    });
+    if (user) {
+      const archive = (recordType, recordIds) => recordIds.length
+        ? supabase.from("finance_records")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("user_id", user.id)
+          .eq("record_type", recordType)
+          .in("record_id", recordIds)
+        : Promise.resolve({ error: null });
+      Promise.all([
+        archive("portfolio", [portfolio.id]),
+        archive("transaction", transactionIds),
+        archive("plan", planIds),
+      ]).then((results) => {
+        const error = results.find((result) => result.error)?.error;
+        if (error) setSyncError(error.message);
+      });
+    }
+  };
   if (!cloudEnabled) return <main className="auth-gate"><section><b>MY EXPENSIA</b><h1>Cloud setup required</h1><p>This protected app needs its Supabase configuration before it can open.</p></section></main>;
   if (!user) return <main className="auth-gate"><section><b>MY EXPENSIA</b><h1>Sign in to your finance data</h1><p>Your portfolios and transactions are private to your account.</p><form className="auth-form" onSubmit={signIn}><input name="email" type="email" autoComplete="email" placeholder="Email address" required /><input name="password" type="password" autoComplete="current-password" placeholder="Password" minLength="6" required /><button>Sign in</button><button type="button" className="secondary" onClick={(event) => signIn({ preventDefault: () => {}, currentTarget: event.currentTarget.form }, true)}>Create account</button>{authMessage && <small>{authMessage}</small>}</form></section></main>;
   return (
@@ -577,7 +615,7 @@ function App() {
                     <option>SAR</option>
                     <option>USD</option>
                     <option>JOD</option>
-                  </select><button type="button" className="reset-portfolio" onClick={() => resetPortfolio(x)}>Reset data</button></span>
+                  </select><button type="button" className="reset-portfolio" onClick={() => resetPortfolio(x)}>Reset data</button><button type="button" className="delete-portfolio" onClick={() => deletePortfolio(x)}>Delete</button></span>
               </label>
             ))}
             <button
