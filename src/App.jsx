@@ -255,7 +255,9 @@ function App() {
   const [authMessage, setAuthMessage] = useState("");
   const [syncError, setSyncError] = useState("");
   const [apiMessage, setApiMessage] = useState("");
+  const [transferMessage, setTransferMessage] = useState("");
   const mobileStateRef = useRef(null);
+  const csvInputRef = useRef(null);
   const [cloudReady, setCloudReady] = useState(!cloudEnabled);
   useEffect(() => {
     if (!cloudEnabled) return;
@@ -308,7 +310,15 @@ function App() {
       Promise.all(writes).then((results) => {
         const error = results.find((result) => result.error)?.error?.message || "";
         setSyncError(error);
-        if (!error) localStorage.removeItem("expensia-web");
+        if (!error) {
+          localStorage.removeItem("expensia-web");
+          const lastBackup = Number(localStorage.getItem("expensia-last-backup") || 0);
+          if (Date.now() - lastBackup >= 7 * 24 * 60 * 60 * 1000) {
+            supabase.from("finance_backups").insert({ user_id: user.id, label: `Automatic backup ${new Date().toISOString()}`, finance_records: toSharedRecords(user.id, d), web_state: d, flutter_state: mobileStateRef.current }).then(({ error: backupError }) => {
+              if (!backupError) localStorage.setItem("expensia-last-backup", String(Date.now()));
+            });
+          }
+        }
       });
     }
   }, [d, user, cloudReady]);
@@ -326,6 +336,38 @@ function App() {
       setApiMessage("Clipboard access was blocked. Allow clipboard permission and try again.");
     }
   };
+  const exportCsv = () => {
+    const rows = [["portfolio", "description", "category", "amount", "type", "date"]];
+    d.portfolios.forEach((portfolio) => portfolio.transactions.forEach((transaction) => rows.push([portfolio.name, transaction.description, transaction.category, transaction.amount, transaction.inflow ? "inflow" : "outflow", transaction.createdAt])));
+    const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a"); link.href = url; link.download = `my-expensia-${mo()}-transactions.csv`; link.click(); URL.revokeObjectURL(url);
+    setTransferMessage("Transactions exported as an Excel-compatible CSV file.");
+  };
+  const importCsv = (event) => {
+    const file = event.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const lines = String(reader.result).trim().split(/\r?\n/).map((line) => line.match(/(?:^|,)(?:"([^"]*(?:""[^"]*)*)"|([^",]*))/g)?.map((cell) => cell.replace(/^,?"?/, "").replace(/"?$/, "").replaceAll('""', '"')) || []);
+      const headers = lines.shift()?.map((header) => header.trim().toLowerCase()) || [];
+      const required = ["portfolio", "description", "category", "amount", "type", "date"];
+      if (!required.every((header) => headers.includes(header))) { setTransferMessage("Import needs: portfolio, description, category, amount, type, date."); return; }
+      let added = 0, skipped = 0;
+      up((next) => lines.forEach((line) => {
+        const row = Object.fromEntries(headers.map((header, index) => [header, line[index]?.trim()]));
+        const portfolio = next.portfolios.find((item) => item.name.toLowerCase() === row.portfolio?.toLowerCase()) || next.portfolios.find((item) => item.id === row.portfolio) || next.portfolios.find((item) => item.id === next.selected);
+        const amount = Number(row.amount); const date = new Date(row.date); const inflow = row.type?.toLowerCase() === "inflow";
+        if (!portfolio || !row.description || !row.category || !Number.isFinite(amount) || amount <= 0 || Number.isNaN(date.getTime()) || !["inflow", "outflow"].includes(row.type?.toLowerCase())) { skipped++; return; }
+        const exists = portfolio.transactions.some((transaction) => transaction.description === row.description && transaction.amount === amount && transaction.inflow === inflow && transaction.createdAt === date.toISOString());
+        if (exists) { skipped++; return; }
+        if (!next.categories.includes(row.category)) next.categories.push(row.category);
+        portfolio.transactions.unshift({ id: id(), description: row.description, category: row.category, amount, inflow, createdAt: date.toISOString() }); added++;
+      }));
+      setTransferMessage(`Imported ${added} transaction${added === 1 ? "" : "s"}${skipped ? `; skipped ${skipped} invalid or duplicate row${skipped === 1 ? "" : "s"}` : ""}.`);
+    };
+    reader.readAsText(file); event.target.value = "";
+  };
+  const createBackup = () => supabase.from("finance_backups").insert({ user_id: user.id, label: `Manual web backup ${new Date().toISOString()}`, finance_records: toSharedRecords(user.id, d), web_state: d, flutter_state: mobileStateRef.current }).then(({ error }) => setTransferMessage(error ? `Backup failed: ${error.message}` : "Cloud backup created successfully."));
   const signIn = async (event, create = false) => {
     event.preventDefault();
     const values = new FormData(event.currentTarget), email = values.get("email"), password = values.get("password");
@@ -759,6 +801,10 @@ function App() {
             {!cloudEnabled ? (
               <p>Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to a `.env` file, then restart the app.</p>
             ) : <><p>Connected as {user.email}. Your data is syncing securely across browsers.</p>{syncError && <p className="sync-error">Cloud sync failed: {syncError}</p>}<button type="button" onClick={copyApiToken}>Copy API access token</button>{apiMessage && <p className="api-message">{apiMessage}</p>}<button onClick={() => supabase.auth.signOut()}>Sign out</button></>}
+            <h3>Import, export, and backups</h3>
+            <p className="section-hint">Exported CSV files open in Excel. Imports validate rows and skip exact duplicates.</p>
+            <div className="data-tools"><button type="button" onClick={exportCsv}>Export transactions CSV</button><button type="button" className="secondary" onClick={() => csvInputRef.current?.click()}>Import transactions CSV</button><button type="button" className="secondary" onClick={createBackup}>Create cloud backup</button><input ref={csvInputRef} type="file" accept=".csv,text/csv" hidden onChange={importCsv} /></div>
+            {transferMessage && <p className="api-message">{transferMessage}</p>}
             <button className="caps-toggle" onClick={() => setPortfoliosOpen(!portfoliosOpen)}>Portfolios ({d.portfolios.length}) <span>{portfoliosOpen ? "-" : "+"}</span></button>
             {portfoliosOpen && <><p className="section-hint">Manage bank accounts, savings portfolios, and credit cards.</p>
             {d.portfolios.map((x) => (

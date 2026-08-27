@@ -25,6 +25,7 @@
   text-align: left;
 }
 .section-hint { margin: 0; color: #697c74; font-size: 12px; }
+.data-tools { display: flex; flex-wrap: wrap; gap: 8px; }
 .categories-settings {
   display: grid;
   gap: 10px;
