@@ -151,6 +151,9 @@ const fromSharedRecords = (records) => {
     .map((record) => ({ ...record.payload, caps: record.payload.categoryCaps || record.payload.caps || {}, transactions: [] }));
   if (!portfolios.length) return null;
   const byId = new Map(portfolios.map((portfolio) => [portfolio.id, portfolio]));
+  const selected = byId.has(profile.selectedId)
+    ? profile.selectedId
+    : portfolios[0].id;
   active.filter((record) => record.record_type === "transaction").forEach((record) => {
     const transaction = record.payload;
     const portfolio = byId.get(transaction.portfolioId);
@@ -164,8 +167,10 @@ const fromSharedRecords = (records) => {
       category: plan.category,
       amount: plan.amount,
       savings: Boolean(plan.savings ?? plan.savingsTransfer),
-      destinationId: plan.destinationId || plan.destinationPortfolioId,
-      portfolioId: plan.portfolioId,
+      destinationId: byId.has(plan.destinationId || plan.destinationPortfolioId)
+        ? plan.destinationId || plan.destinationPortfolioId
+        : undefined,
+      portfolioId: byId.has(plan.portfolioId) ? plan.portfolioId : selected,
       dueDay: plan.dueDay || 1,
       recurring: plan.recurring ?? true,
       last: plan.last || plan.lastCreatedMonth || "",
@@ -173,7 +178,7 @@ const fromSharedRecords = (records) => {
     };
   });
   return {
-    selected: profile.selectedId || portfolios[0].id,
+    selected,
     profile: profile.name || "",
     categories: category.categories || cats,
     portfolios,
@@ -584,10 +589,11 @@ function App() {
               {!completed && <button
                 onClick={() =>
                   up((z) => {
-                    let a = z.portfolios.find(
-                      (q) => q.id === (x.portfolioId || "main"),
-                    );
-                    a.transactions.unshift({
+                    const source = z.portfolios.find(
+                      (q) => q.id === x.portfolioId,
+                    ) || z.portfolios.find((q) => q.id === z.selected) || z.portfolios[0];
+                    if (!source) return;
+                    source.transactions.unshift({
                       id: id(),
                       description: x.description,
                       category: x.category,
@@ -595,10 +601,11 @@ function App() {
                       inflow: false,
                       createdAt: new Date().toISOString(),
                     });
-                    if (x.savings)
-                      z.portfolios
-                        .find((q) => q.id === (x.destinationId || "save"))
-                        .transactions.unshift({
+                    const destination = z.portfolios.find(
+                      (q) => q.id === x.destinationId,
+                    );
+                    if (x.savings && destination && destination.id !== source.id)
+                      destination.transactions.unshift({
                           id: id(),
                           description: x.description,
                           category: x.category,
@@ -606,7 +613,9 @@ function App() {
                           inflow: true,
                           createdAt: new Date().toISOString(),
                         });
-                    z.plans.find((q) => q.id === x.id).last = mo();
+                    const plan = z.plans.find((q) => q.id === x.id);
+                    plan.portfolioId = source.id;
+                    plan.last = mo();
                   })
                 }
               >
