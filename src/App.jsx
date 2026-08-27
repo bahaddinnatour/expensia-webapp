@@ -62,6 +62,8 @@ const id = () => crypto.randomUUID(),
         name: "My portfolio",
         currency: "SAR",
         opening: 0,
+        type: "bank",
+        creditLimit: 0,
         caps: {},
         transactions: [],
       },
@@ -70,6 +72,8 @@ const id = () => crypto.randomUUID(),
         name: "Savings / Reserves",
         currency: "SAR",
         opening: 0,
+        type: "bank",
+        creditLimit: 0,
         caps: {},
         transactions: [],
       },
@@ -117,6 +121,8 @@ const fromFlutterState = (state) => ({
     name: portfolio.name,
     currency: String(portfolio.currency || "sar").toUpperCase(),
     opening: portfolio.opening || 0,
+    type: portfolio.type || "bank",
+    creditLimit: portfolio.creditLimit || 0,
     caps: portfolio.categoryCaps || {},
     transactions: portfolio.transactions || [],
   })),
@@ -141,7 +147,7 @@ const toFlutterState = (data, previous) => ({
   categories: data.categories,
   portfolios: data.portfolios.map((portfolio) => {
     const existing = (previous.portfolios || []).find((item) => item.id === portfolio.id) || {};
-    return { ...existing, id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), categoryCaps: portfolio.caps || {}, transactions: portfolio.transactions || [] };
+    return { ...existing, id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), type: portfolio.type || "bank", creditLimit: portfolio.creditLimit || 0, categoryCaps: portfolio.caps || {}, transactions: portfolio.transactions || [] };
   }),
   monthlyPlans: data.plans.map((plan) => {
     const existing = (previous.monthlyPlans || []).find((item) => item.id === plan.id) || {};
@@ -154,7 +160,7 @@ const fromSharedRecords = (records) => {
   const category = active.find((record) => record.record_type === "category")?.payload || {};
   const portfolios = active
     .filter((record) => record.record_type === "portfolio")
-    .map((record) => ({ ...record.payload, caps: record.payload.categoryCaps || record.payload.caps || {}, transactions: [] }));
+    .map((record) => ({ ...record.payload, type: record.payload.type || "bank", creditLimit: record.payload.creditLimit || 0, caps: record.payload.categoryCaps || record.payload.caps || {}, transactions: [] }));
   if (!portfolios.length) return null;
   const byId = new Map(portfolios.map((portfolio) => [portfolio.id, portfolio]));
   const selected = byId.has(profile.selectedId)
@@ -195,7 +201,7 @@ const toSharedRecords = (userId, data) => [
   { user_id: userId, record_type: "profile", record_id: "settings", payload: { name: data.profile, selectedId: data.selected } },
   { user_id: userId, record_type: "category", record_id: "all", payload: { categories: data.categories, icons: {} } },
   ...data.portfolios.flatMap((portfolio) => [
-    { user_id: userId, record_type: "portfolio", record_id: portfolio.id, payload: { id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), categoryCaps: portfolio.caps || {} } },
+    { user_id: userId, record_type: "portfolio", record_id: portfolio.id, payload: { id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), type: portfolio.type || "bank", creditLimit: portfolio.creditLimit || 0, categoryCaps: portfolio.caps || {} } },
     ...portfolio.transactions.map((transaction) => ({ user_id: userId, record_type: "transaction", record_id: transaction.id, payload: { ...transaction, portfolioId: portfolio.id }, deleted_at: null })),
   ]),
   ...data.plans.map((plan) => ({ user_id: userId, record_type: "plan", record_id: plan.id, payload: { ...plan, savingsTransfer: Boolean(plan.savings), lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null } })),
@@ -301,6 +307,8 @@ function App() {
     bal = (x) =>
       x.opening +
       x.transactions.reduce((s, t) => s + (t.inflow ? t.amount : -t.amount), 0),
+    outstanding = (x) => Math.max(0, -bal(x)),
+    availableCredit = (x) => Math.max(0, (Number(x.creditLimit) || 0) - outstanding(x)),
     add = (e) => {
       e.preventDefault();
       let v = Object.fromEntries(new FormData(e.target)),
@@ -536,14 +544,15 @@ function App() {
           <>
             <section className="hero">
               <div>
-                <small>ACTIVE PORTFOLIO</small>
+                <small>{p.type === "creditCard" ? "CREDIT CARD" : "ACTIVE PORTFOLIO"}</small>
                 <h2>{p.name}</h2>
-                <strong>{fmt(p, bal(p))}</strong>
+                <strong>{fmt(p, p.type === "creditCard" ? outstanding(p) : bal(p))}</strong>
+                {p.type === "creditCard" && <small>Outstanding of {fmt(p, Number(p.creditLimit) || 0)} limit. Available: {fmt(p, availableCredit(p))}</small>}
               </div>
               <div>
-                <button onClick={() => setForm("in")}>+ Inflow</button>
+                <button onClick={() => setForm("in")}>+ {p.type === "creditCard" ? "Payment" : "Inflow"}</button>
                 <button className="red" onClick={() => setForm("out")}>
-                  − Outflow
+                  − {p.type === "creditCard" ? "Card charge" : "Outflow"}
                 </button>
               </div>
             </section>
@@ -702,23 +711,29 @@ function App() {
                     <option>SAR</option>
                     <option>USD</option>
                     <option>JOD</option>
-                  </select><button type="button" className="reset-portfolio" onClick={() => resetPortfolio(x)}>Reset data</button><button type="button" className="delete-portfolio" onClick={() => deletePortfolio(x)}>Delete</button></span>
+                  </select><select value={x.type || "bank"} onChange={(e) => up((z) => (z.portfolios.find((q) => q.id === x.id).type = e.target.value))}><option value="bank">Bank / cash</option><option value="creditCard">Credit card</option></select>{x.type === "creditCard" && <input type="number" min="0" step=".01" aria-label="Credit limit" value={x.creditLimit || ""} placeholder="Credit limit" onChange={(e) => up((z) => (z.portfolios.find((q) => q.id === x.id).creditLimit = Number(e.target.value) || 0))} />}<button type="button" className="reset-portfolio" onClick={() => resetPortfolio(x)}>Reset data</button><button type="button" className="delete-portfolio" onClick={() => deletePortfolio(x)}>Delete</button></span>
               </label>
             ))}
             <button
               onClick={() => {
                 let n = prompt("Portfolio name");
-                if (n)
+                if (n) {
+                  const type = confirm("Create this as a credit card? Select Cancel for a bank / cash portfolio.") ? "creditCard" : "bank";
+                  const creditLimit = type === "creditCard" ? Number(prompt("Credit limit", "0")) || 0 : 0;
+                  if (type === "creditCard" && creditLimit <= 0) return;
                   up((x) =>
                     x.portfolios.push({
                       id: id(),
                       name: n,
                       currency: "SAR",
                       opening: 0,
+                      type,
+                      creditLimit,
                       caps: {},
                       transactions: [],
                     }),
                   );
+                }
               }}
             >
               Add portfolio
