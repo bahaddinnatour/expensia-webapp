@@ -165,6 +165,16 @@ const fromSharedRecords = (records) => {
     .filter((record) => record.record_type === "portfolio")
     .map((record) => ({ ...record.payload, type: record.payload.type || "bank", creditLimit: record.payload.creditLimit || 0, caps: record.payload.categoryCaps || record.payload.caps || {}, transactions: [] }));
   if (!portfolios.length) return null;
+  const globalCaps = structuredClone(profile.globalCategoryCaps || {});
+  if (profile.capsSharedVersion !== 1) {
+    portfolios.forEach((portfolio) => {
+      const shared = globalCaps[portfolio.currency] ||= {};
+      Object.entries(portfolio.caps || {}).forEach(([category, amount]) => {
+        shared[category] = Math.max(shared[category] || 0, Number(amount));
+      });
+      portfolio.caps = {};
+    });
+  }
   const byId = new Map(portfolios.map((portfolio) => [portfolio.id, portfolio]));
   const selected = byId.has(profile.selectedId)
     ? profile.selectedId
@@ -195,14 +205,14 @@ const fromSharedRecords = (records) => {
   return {
     selected,
     profile: profile.name || "",
-    globalCaps: profile.globalCategoryCaps || {},
+    globalCaps,
     categories: category.categories || cats,
     portfolios,
     plans,
   };
 };
 const toSharedRecords = (userId, data) => [
-  { user_id: userId, record_type: "profile", record_id: "settings", payload: { name: data.profile, selectedId: data.selected, globalCategoryCaps: data.globalCaps || {} } },
+  { user_id: userId, record_type: "profile", record_id: "settings", payload: { name: data.profile, selectedId: data.selected, globalCategoryCaps: data.globalCaps || {}, capsSharedVersion: 1 } },
   { user_id: userId, record_type: "category", record_id: "all", payload: { categories: data.categories, icons: {} } },
   ...data.portfolios.flatMap((portfolio) => [
     { user_id: userId, record_type: "portfolio", record_id: portfolio.id, payload: { id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), type: portfolio.type || "bank", creditLimit: portfolio.creditLimit || 0, categoryCaps: portfolio.caps || {} } },
