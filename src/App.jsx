@@ -569,7 +569,7 @@ function App() {
         <h1>
           MY <i>EXPENSIA</i>
         </h1>
-        {["Dashboard", "Home", "Report", "Plans", "History", "Settings"].map((x) => (
+        {["Dashboard", "Home", "Report", "Bill calendar", "Plans", "History", "Settings"].map((x) => (
           <button className={tab === x ? "on" : ""} onClick={() => setTab(x)}>
             {x}
           </button>
@@ -695,7 +695,7 @@ function App() {
             })}
           </>
         )}
-        {tab === "Plans" && <>
+        {tab === "Bill calendar" &&
           <section className="plan-calendar">
             <div className="plan-calendar-heading"><div><small>RECURRING BILLS</small><h3>{calendarStart.toLocaleString("en", { month: "long", year: "numeric" })}</h3></div><span>{d.plans.filter((plan) => plan.last !== mo() && plan.skipped !== mo()).length} pending</span></div>
             <div className="calendar-weekdays">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <small key={day}>{day}</small>)}</div>
@@ -705,6 +705,8 @@ function App() {
             })}</div>
             <small className="calendar-help">Select a pending bill to create it now. Due-date reminders are sent on Android for recurring plans.</small>
           </section>
+        }
+        {tab === "Plans" && <>
           <div className="plans-list">
           {d.plans.map((x) => {
             const skipped = x.skipped === mo();
