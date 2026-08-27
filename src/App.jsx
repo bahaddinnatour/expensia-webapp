@@ -237,6 +237,7 @@ function App() {
   const [newCap, setNewCap] = useState(null);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [plansOpen, setPlansOpen] = useState(false);
+  const [portfoliosOpen, setPortfoliosOpen] = useState(true);
   const [user, setUser] = useState(null);
   const [authMessage, setAuthMessage] = useState("");
   const [syncError, setSyncError] = useState("");
@@ -721,7 +722,8 @@ function App() {
             {!cloudEnabled ? (
               <p>Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to a `.env` file, then restart the app.</p>
             ) : <><p>Connected as {user.email}. Your data is syncing securely across browsers.</p>{syncError && <p className="sync-error">Cloud sync failed: {syncError}</p>}<button type="button" onClick={copyApiToken}>Copy API access token</button>{apiMessage && <p className="api-message">{apiMessage}</p>}<button onClick={() => supabase.auth.signOut()}>Sign out</button></>}
-            <h3>Portfolios</h3>
+            <button className="caps-toggle" onClick={() => setPortfoliosOpen(!portfoliosOpen)}>Portfolios ({d.portfolios.length}) <span>{portfoliosOpen ? "-" : "+"}</span></button>
+            {portfoliosOpen && <><p className="section-hint">Manage bank accounts, savings portfolios, and credit cards.</p>
             {d.portfolios.map((x) => (
               <label key={x.id}>
                 <input className="portfolio-name" value={x.name} aria-label="Portfolio name" onChange={(e) => up((z) => (z.portfolios.find((q) => q.id === x.id).name = e.target.value))} />
@@ -764,7 +766,7 @@ function App() {
               }}
             >
               Add portfolio
-            </button>
+            </button></>}
             <button
               className="caps-toggle"
               onClick={() => setPlansOpen(!plansOpen)}

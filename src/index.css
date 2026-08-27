@@ -11,6 +11,7 @@
   color: #1d5c4f;
   text-align: left;
 }
+.section-hint { margin: 0; color: #697c74; font-size: 12px; }
 .categories-settings {
   display: grid;
   gap: 10px;
