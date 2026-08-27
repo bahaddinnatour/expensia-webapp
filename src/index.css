@@ -26,6 +26,7 @@
 }
 .section-hint { margin: 0; color: #697c74; font-size: 12px; }
 .data-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.backup-tools { display: grid; gap: 10px; padding: 4px 2px; }
 .categories-settings {
   display: grid;
   gap: 10px;

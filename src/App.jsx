@@ -251,6 +251,7 @@ function App() {
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [plansOpen, setPlansOpen] = useState(false);
   const [portfoliosOpen, setPortfoliosOpen] = useState(true);
+  const [backupsOpen, setBackupsOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [authMessage, setAuthMessage] = useState("");
   const [syncError, setSyncError] = useState("");
@@ -801,10 +802,8 @@ function App() {
             {!cloudEnabled ? (
               <p>Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to a `.env` file, then restart the app.</p>
             ) : <><p>Connected as {user.email}. Your data is syncing securely across browsers.</p>{syncError && <p className="sync-error">Cloud sync failed: {syncError}</p>}<button type="button" onClick={copyApiToken}>Copy API access token</button>{apiMessage && <p className="api-message">{apiMessage}</p>}<button onClick={() => supabase.auth.signOut()}>Sign out</button></>}
-            <h3>Import, export, and backups</h3>
-            <p className="section-hint">Exported CSV files open in Excel. Imports validate rows and skip exact duplicates.</p>
-            <div className="data-tools"><button type="button" onClick={exportCsv}>Export transactions CSV</button><button type="button" className="secondary" onClick={() => csvInputRef.current?.click()}>Import transactions CSV</button><button type="button" className="secondary" onClick={createBackup}>Create cloud backup</button><input ref={csvInputRef} type="file" accept=".csv,text/csv" hidden onChange={importCsv} /></div>
-            {transferMessage && <p className="api-message">{transferMessage}</p>}
+            <button className="caps-toggle" onClick={() => setBackupsOpen(!backupsOpen)}>Import, export, and backups <span>{backupsOpen ? "-" : "+"}</span></button>
+            {backupsOpen && <div className="backup-tools"><p className="section-hint">Exported CSV files open in Excel. Imports validate rows and skip exact duplicates. Cloud backups are also created automatically each week while you use the app.</p><div className="data-tools"><button type="button" onClick={exportCsv}>Export transactions CSV</button><button type="button" className="secondary" onClick={() => csvInputRef.current?.click()}>Import transactions CSV</button><button type="button" className="secondary" onClick={createBackup}>Create cloud backup</button><input ref={csvInputRef} type="file" accept=".csv,text/csv" hidden onChange={importCsv} /></div>{transferMessage && <p className="api-message">{transferMessage}</p>}</div>}
             <button className="caps-toggle" onClick={() => setPortfoliosOpen(!portfoliosOpen)}>Portfolios ({d.portfolios.length}) <span>{portfoliosOpen ? "-" : "+"}</span></button>
             {portfoliosOpen && <><p className="section-hint">Manage bank accounts, savings portfolios, and credit cards.</p>
             {d.portfolios.map((x) => (
