@@ -9,4 +9,5 @@ where user_id = (
   select id from auth.users where email = 'YOUR_EMAIL_ADDRESS'
 )
   and record_type = 'transaction'
-  and deleted_at is not null;
+  and deleted_at is not null
+returning record_id, payload->>'description' as description;
