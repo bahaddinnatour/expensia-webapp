@@ -136,6 +136,44 @@ const toFlutterState = (data, previous) => ({
     return { ...existing, id: plan.id, description: plan.description, category: plan.category, amount: plan.amount, savingsTransfer: Boolean(plan.savings), destinationPortfolioId: plan.destinationId || existing.destinationPortfolioId, portfolioId: plan.portfolioId || existing.portfolioId || data.selected, dueDay: plan.dueDay || existing.dueDay || 1, recurring: plan.recurring ?? existing.recurring ?? true, lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null };
   }),
 });
+const fromSharedRecords = (records) => {
+  const active = records.filter((record) => !record.deleted_at);
+  const profile = active.find((record) => record.record_type === "profile")?.payload || {};
+  const category = active.find((record) => record.record_type === "category")?.payload || {};
+  const portfolios = active
+    .filter((record) => record.record_type === "portfolio")
+    .map((record) => ({ ...record.payload, caps: record.payload.categoryCaps || record.payload.caps || {}, transactions: [] }));
+  if (!portfolios.length) return null;
+  const byId = new Map(portfolios.map((portfolio) => [portfolio.id, portfolio]));
+  active.filter((record) => record.record_type === "transaction").forEach((record) => {
+    const transaction = record.payload;
+    const portfolio = byId.get(transaction.portfolioId);
+    if (portfolio) portfolio.transactions.push(transaction);
+  });
+  const plans = active.filter((record) => record.record_type === "plan").map((record) => {
+    const plan = record.payload;
+    return {
+      id: plan.id,
+      description: plan.description,
+      category: plan.category,
+      amount: plan.amount,
+      savings: Boolean(plan.savings ?? plan.savingsTransfer),
+      destinationId: plan.destinationId || plan.destinationPortfolioId,
+      portfolioId: plan.portfolioId,
+      dueDay: plan.dueDay || 1,
+      recurring: plan.recurring ?? true,
+      last: plan.last || plan.lastCreatedMonth || "",
+      skipped: plan.skipped || plan.lastSkippedMonth || "",
+    };
+  });
+  return {
+    selected: profile.selectedId || portfolios[0].id,
+    profile: profile.name || "",
+    categories: category.categories || cats,
+    portfolios,
+    plans,
+  };
+};
 const toSharedRecords = (userId, data) => [
   { user_id: userId, record_type: "profile", record_id: "settings", payload: { name: data.profile, selectedId: data.selected } },
   { user_id: userId, record_type: "category", record_id: "all", payload: { categories: data.categories, icons: {} } },
@@ -147,15 +185,8 @@ const toSharedRecords = (userId, data) => [
 ];
 const syncSharedRecords = async (userId, data) => {
   const records = toSharedRecords(userId, data);
-  const activeTransactionIds = new Set(records.filter((record) => record.record_type === "transaction").map((record) => record.record_id));
-  const { data: storedTransactions, error: readError } = await supabase.from("finance_records").select("record_id").eq("user_id", userId).eq("record_type", "transaction");
-  if (readError) return { error: readError };
-  const removed = (storedTransactions || []).filter((record) => !activeTransactionIds.has(record.record_id));
-  const results = await Promise.all([
-    supabase.from("finance_records").upsert(records),
-    ...removed.map((record) => supabase.from("finance_records").update({ deleted_at: new Date().toISOString() }).eq("user_id", userId).eq("record_type", "transaction").eq("record_id", record.record_id)),
-  ]);
-  return results.find((result) => result.error) || { error: null };
+  const { error } = await supabase.from("finance_records").upsert(records);
+  return { error };
 };
 function App() {
   const [d, setD] = useState(readData),
@@ -180,18 +211,21 @@ function App() {
     if (!user) return;
     setCloudReady(false);
     setSyncError("");
-    const [{ data: mobile, error: mobileError }, { data: saved, error: savedError }] = await Promise.all([
+    const [{ data: mobile, error: mobileError }, { data: saved, error: savedError }, { data: records, error: recordsError }] = await Promise.all([
       supabase.from("flutter_app_state").select("data, updated_at").eq("user_id", user.id).maybeSingle(),
       supabase.from("app_state").select("data, updated_at").eq("user_id", user.id).maybeSingle(),
+      supabase.from("finance_records").select("record_type, record_id, payload, deleted_at").eq("user_id", user.id),
     ]);
-    const error = mobileError || savedError;
+    const error = mobileError || savedError || recordsError;
     if (error) {
       setSyncError(error.message);
       setCloudReady(true);
       return;
     }
+    const sharedData = fromSharedRecords(records || []);
     if (mobile?.data?.portfolios) mobileStateRef.current = mobile.data;
-    if (saved?.data?.portfolios && (!mobile?.data?.portfolios || saved.updated_at > mobile.updated_at)) setD(saved.data);
+    if (sharedData) setD(sharedData);
+    else if (saved?.data?.portfolios && (!mobile?.data?.portfolios || saved.updated_at > mobile.updated_at)) setD(saved.data);
     else if (mobile?.data?.portfolios) setD(fromFlutterState(mobile.data));
     setCloudReady(true);
   };
@@ -294,13 +328,24 @@ function App() {
     );
   const removeTransaction = (transaction) => {
     if (!confirm("Delete this transaction and reverse its balance effect?")) return;
+    const plan = d.plans.find(
+      (item) =>
+        item.last === mo() &&
+        item.description === transaction.description &&
+        item.amount === transaction.amount,
+    );
+    const removedIds = d.portfolios.flatMap((portfolio) =>
+      portfolio.transactions
+        .filter((item) =>
+          item.id === transaction.id ||
+          (plan?.savings &&
+            item.description === plan.description &&
+            item.amount === plan.amount &&
+            item.createdAt.slice(0, 7) === mo()),
+        )
+        .map((item) => item.id),
+    );
     up((next) => {
-      const plan = next.plans.find(
-        (item) =>
-          item.last === mo() &&
-          item.description === transaction.description &&
-          item.amount === transaction.amount,
-      );
       next.portfolios.forEach((portfolio) => {
         portfolio.transactions = portfolio.transactions.filter((item) => {
           if (item.id === transaction.id) return false;
@@ -312,8 +357,16 @@ function App() {
           );
         });
       });
-      if (plan) plan.last = "";
+      if (plan) next.plans.find((item) => item.id === plan.id).last = "";
     });
+    if (user && removedIds.length) {
+      supabase.from("finance_records")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("user_id", user.id)
+        .eq("record_type", "transaction")
+        .in("record_id", removedIds)
+        .then(({ error }) => error && setSyncError(error.message));
+    }
   };
   const resetPortfolio = (portfolio) => {
     if (!confirm(`Reset ${portfolio.name}? This permanently clears its transactions and resets its amount to zero. Category caps and portfolio settings will stay.`)) return;
