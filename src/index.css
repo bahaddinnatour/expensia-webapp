@@ -219,6 +219,16 @@ h2 {
   display: block;
   margin-top: 5px;
 }
+.skip-plan {
+  background: #fff;
+  color: #365a50;
+  border: 1px solid #a9c2b7;
+}
+.plan-status {
+  color: #365a50;
+  font-size: 13px;
+  font-weight: 700;
+}
 .rows {
   display: grid;
   gap: 7px;

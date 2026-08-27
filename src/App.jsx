@@ -115,7 +115,11 @@ const fromFlutterState = (state) => ({
     amount: plan.amount,
     savings: Boolean(plan.savingsTransfer),
     destinationId: plan.destinationPortfolioId,
+    portfolioId: plan.portfolioId,
+    dueDay: plan.dueDay || 1,
+    recurring: plan.recurring ?? true,
     last: plan.lastCreatedMonth || "",
+    skipped: plan.lastSkippedMonth || "",
   })),
 });
 const toFlutterState = (data, previous) => ({
@@ -129,7 +133,7 @@ const toFlutterState = (data, previous) => ({
   }),
   monthlyPlans: data.plans.map((plan) => {
     const existing = (previous.monthlyPlans || []).find((item) => item.id === plan.id) || {};
-    return { ...existing, id: plan.id, description: plan.description, category: plan.category, amount: plan.amount, savingsTransfer: Boolean(plan.savings), destinationPortfolioId: plan.destinationId || existing.destinationPortfolioId, portfolioId: existing.portfolioId || data.selected, dueDay: existing.dueDay || 1, recurring: existing.recurring ?? true, lastCreatedMonth: plan.last || null };
+    return { ...existing, id: plan.id, description: plan.description, category: plan.category, amount: plan.amount, savingsTransfer: Boolean(plan.savings), destinationPortfolioId: plan.destinationId || existing.destinationPortfolioId, portfolioId: plan.portfolioId || existing.portfolioId || data.selected, dueDay: plan.dueDay || existing.dueDay || 1, recurring: plan.recurring ?? existing.recurring ?? true, lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null };
   }),
 });
 const toSharedRecords = (userId, data) => [
@@ -139,7 +143,7 @@ const toSharedRecords = (userId, data) => [
     { user_id: userId, record_type: "portfolio", record_id: portfolio.id, payload: { id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), categoryCaps: portfolio.caps || {} } },
     ...portfolio.transactions.map((transaction) => ({ user_id: userId, record_type: "transaction", record_id: transaction.id, payload: { ...transaction, portfolioId: portfolio.id }, deleted_at: null })),
   ]),
-  ...data.plans.map((plan) => ({ user_id: userId, record_type: "plan", record_id: plan.id, payload: { ...plan, savingsTransfer: Boolean(plan.savings), lastCreatedMonth: plan.last || null } })),
+  ...data.plans.map((plan) => ({ user_id: userId, record_type: "plan", record_id: plan.id, payload: { ...plan, savingsTransfer: Boolean(plan.savings), lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null } })),
 ];
 const syncSharedRecords = async (userId, data) => {
   const records = toSharedRecords(userId, data);
@@ -317,7 +321,7 @@ function App() {
       const target = next.portfolios.find((item) => item.id === portfolio.id);
       target.transactions = [];
       target.opening = 0;
-      next.plans = next.plans.map((plan) => (plan.portfolioId || "main") === portfolio.id ? { ...plan, last: "" } : plan);
+      next.plans = next.plans.map((plan) => (plan.portfolioId || "main") === portfolio.id ? { ...plan, last: "", skipped: "" } : plan);
     });
   };
   if (!cloudEnabled) return <main className="auth-gate"><section><b>MY EXPENSIA</b><h1>Cloud setup required</h1><p>This protected app needs its Supabase configuration before it can open.</p></section></main>;
@@ -435,19 +439,20 @@ function App() {
           </>
         )}
         {tab === "Plans" &&
-          d.plans.map((x) => (
-            <article className="plan">
+          d.plans.map((x) => {
+            const skipped = x.skipped === mo();
+            const completed = x.last === mo() || skipped;
+            return <article className="plan" key={x.id}>
               <span>{x.savings ? "◈" : icon[x.category] || "✨"}</span>
               <div>
                 <b>{x.description}</b>
                 <small>
                   {x.savings ? "Savings transfer" : "Regular outflow"} · due day
-                  1
+                  {x.dueDay || 1}
                 </small>
               </div>
               <b>{fmt(p, x.amount)}</b>
-              <button
-                disabled={x.last === mo()}
+              {!completed && <button
                 onClick={() =>
                   up((z) => {
                     let a = z.portfolios.find(
@@ -476,10 +481,15 @@ function App() {
                   })
                 }
               >
-                {x.last === mo() ? "Created" : "Create now"}
-              </button>
-            </article>
-          ))}
+                Create now
+              </button>}
+              {!completed && <button className="skip-plan" onClick={() => {
+                if (!confirm(`Skip ${x.description} for this month? No transaction will be created.`)) return;
+                up((z) => { z.plans.find((q) => q.id === x.id).skipped = mo(); });
+              }}>Skip this month</button>}
+              {completed && <span className="plan-status">{skipped ? "Skipped this month" : "Created this month"}</span>}
+            </article>;
+          })}
         {tab === "History" && (
           <Rows
             rows={d.portfolios
