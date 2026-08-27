@@ -230,6 +230,7 @@ function App() {
     [tab, setTab] = useState("Home"),
     [form, setForm] = useState(null);
   const [recentScope, setRecentScope] = useState("portfolio");
+  const [historyScope, setHistoryScope] = useState("portfolio");
   const [reportScope, setReportScope] = useState("global");
   const [editing, setEditing] = useState(null);
   const [capsOpen, setCapsOpen] = useState(false);
@@ -610,8 +611,6 @@ function App() {
                 .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
                 .slice(0, 8)}
               p={p}
-              del={removeTransaction}
-              edit={(transaction) => setEditing({ transaction, portfolioId: transaction.sourcePortfolio?.id || p.id })}
             />
           </>
         )}
@@ -706,13 +705,13 @@ function App() {
           })}
         {tab === "History" && (
           <>
-            <p className="history-context">Transactions in {p.name}</p>
+            <div className="recent-heading"><p className="history-context">Transactions in {historyScope === "global" ? "all portfolios" : p.name}</p><div className="scope-switch"><button className={historyScope === "portfolio" ? "on" : ""} onClick={() => setHistoryScope("portfolio")}>This portfolio</button><button className={historyScope === "global" ? "on" : ""} onClick={() => setHistoryScope("global")}>All portfolios</button></div></div>
             <Rows
-              rows={[...p.transactions]
+              rows={(historyScope === "global" ? d.portfolios.flatMap((portfolio) => portfolio.transactions.map((transaction) => ({ ...transaction, sourcePortfolio: portfolio }))) : p.transactions.map((transaction) => ({ ...transaction, sourcePortfolio: p })))
                 .sort((a, b) => b.createdAt.localeCompare(a.createdAt))}
               p={p}
               del={removeTransaction}
-              edit={(transaction) => setEditing({ transaction, portfolioId: p.id })}
+              edit={(transaction) => setEditing({ transaction, portfolioId: transaction.sourcePortfolio?.id || p.id })}
             />
           </>
         )}{" "}
@@ -1003,7 +1002,7 @@ function Rows({ rows, p, del, edit }) {
   return (
     <div className="rows">
       {rows.map((t) => (
-        <article>
+        <article className={!edit && !del ? "read-only" : ""}>
           <span>{icon[t.category] || "✨"}</span>
           <div>
             <b>{t.description}</b>
@@ -1017,7 +1016,7 @@ function Rows({ rows, p, del, edit }) {
             {t.inflow ? "+" : "−"}
             {fmt(t.sourcePortfolio || p, t.amount)}
           </strong>
-          <button type="button" onClick={() => edit(t)}>Edit</button>
+          {edit && <button className="edit-transaction" type="button" aria-label={`Edit ${t.description}`} title="Edit transaction" onClick={() => edit(t)}>✎</button>}
           <button onClick={() => del(t)}>×</button>
         </article>
       ))}

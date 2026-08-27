@@ -261,6 +261,13 @@ h2 {
   padding: 0;
   font-size: 20px;
 }
+.rows .edit-transaction {
+  color: #167662;
+  font-size: 19px;
+}
+.rows .read-only button {
+  display: none;
+}
 .settings {
   display: grid;
   gap: 10px;
