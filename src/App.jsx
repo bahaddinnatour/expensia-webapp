@@ -500,7 +500,7 @@ function App() {
             <h3>Portfolios</h3>
             {d.portfolios.map((x) => (
               <label key={x.id}>
-                {x.name}
+                <input className="portfolio-name" value={x.name} aria-label="Portfolio name" onChange={(e) => up((z) => (z.portfolios.find((q) => q.id === x.id).name = e.target.value))} />
                 <span className="portfolio-controls"><select
                     value={x.currency}
                     onChange={(e) =>

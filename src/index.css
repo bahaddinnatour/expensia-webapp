@@ -249,6 +249,7 @@ h2 {
   align-items: center;
 }
 .portfolio-controls { display: flex; align-items: center; gap: 8px; }
+.portfolio-name { max-width: 220px; }
 .reset-portfolio { background: #b42318; }
 .modal {
   position: fixed;
