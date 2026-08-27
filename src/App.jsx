@@ -116,7 +116,7 @@ const readData = () => {
 const fromFlutterState = (state) => ({
   selected: state.selectedId || "default",
   profile: state.name || "",
-  globalCaps: state.globalCategoryCaps || {},
+  globalCaps: Object.fromEntries(Object.entries(state.globalCategoryCaps || {}).map(([currency, caps]) => [currency.toLowerCase(), caps])),
   categories: state.categories || cats,
   portfolios: (state.portfolios || []).map((portfolio) => ({
     id: portfolio.id,
@@ -165,10 +165,10 @@ const fromSharedRecords = (records) => {
     .filter((record) => record.record_type === "portfolio")
     .map((record) => ({ ...record.payload, type: record.payload.type || "bank", creditLimit: record.payload.creditLimit || 0, caps: record.payload.categoryCaps || record.payload.caps || {}, transactions: [] }));
   if (!portfolios.length) return null;
-  const globalCaps = structuredClone(profile.globalCategoryCaps || {});
+  const globalCaps = Object.fromEntries(Object.entries(profile.globalCategoryCaps || {}).map(([currency, caps]) => [currency.toLowerCase(), structuredClone(caps)]));
   if (profile.capsSharedVersion !== 1) {
     portfolios.forEach((portfolio) => {
-      const shared = globalCaps[portfolio.currency] ||= {};
+      const shared = globalCaps[portfolio.currency.toLowerCase()] ||= {};
       Object.entries(portfolio.caps || {}).forEach(([category, amount]) => {
         shared[category] = Math.max(shared[category] || 0, Number(amount));
       });
@@ -331,7 +331,7 @@ function App() {
       e.preventDefault();
       let v = Object.fromEntries(new FormData(e.target)),
         q = d.portfolios.find((x) => x.id === v.portfolio),
-        sharedCap = d.globalCaps[q.currency]?.[v.category],
+        sharedCap = d.globalCaps[q.currency.toLowerCase()]?.[v.category],
         spent =
           (sharedCap ? d.portfolios.filter((portfolio) => portfolio.currency === q.currency).flatMap((portfolio) => portfolio.transactions) : q.transactions)
             .filter(
@@ -612,7 +612,7 @@ function App() {
           <>
             <div className="recent-heading"><p>Category outflow in {reportScope === "global" ? `all ${p.currency} portfolios` : p.name}</p><div className="scope-switch"><button className={reportScope === "portfolio" ? "on" : ""} onClick={() => setReportScope("portfolio")}>This portfolio</button><button className={reportScope === "global" ? "on" : ""} onClick={() => setReportScope("global")}>All {p.currency}</button></div></div>
             {catsum.map(([c, n]) => {
-              let cap = reportScope === "global" ? d.globalCaps[p.currency]?.[c] : p.caps[c],
+              let cap = reportScope === "global" ? d.globalCaps[p.currency.toLowerCase()]?.[c] : p.caps[c],
                 used = reportOut
                   .filter(
                     (t) => t.category === c && t.createdAt.slice(0, 7) === mo(),
@@ -872,7 +872,7 @@ function App() {
             </button>
             {capsOpen &&
               <section className="caps-settings"><div className="cap-mode"><div><b>Cap scope</b><small>{capsShared ? `One cap shared by all ${p.currency} portfolios.` : `A separate cap for ${p.name}.`}</small></div><select value={capsShared ? "shared" : "portfolio"} onChange={(event) => setCapsShared(event.target.value === "shared")}><option value="portfolio">Per portfolio</option><option value="shared">Shared: {p.currency}</option></select></div>
-              {d.categories.filter((c) => capsShared ? d.globalCaps[p.currency]?.[c] : p.caps[c]).map((c) => (
+              {d.categories.filter((c) => capsShared ? d.globalCaps[p.currency.toLowerCase()]?.[c] : p.caps[c]).map((c) => (
                 <div className="cap-editor" key={c}>
                   <span className={`cap-scope ${capsShared ? "shared" : ""}`}>{capsShared ? `Shared ${p.currency}` : "Per portfolio"}</span>
                   {icon[c] || "•"} {c}
@@ -881,10 +881,10 @@ function App() {
                     min="0"
                     step=".01"
                     placeholder="No cap"
-                    value={(capsShared ? d.globalCaps[p.currency]?.[c] : p.caps[c]) || ""}
+                    value={(capsShared ? d.globalCaps[p.currency.toLowerCase()]?.[c] : p.caps[c]) || ""}
                     onChange={(e) =>
                       up((x) => {
-                        let v = capsShared ? (x.globalCaps[p.currency] ||= {}) : x.portfolios.find((q) => q.id === x.selected).caps;
+                        let v = capsShared ? (x.globalCaps[p.currency.toLowerCase()] ||= {}) : x.portfolios.find((q) => q.id === x.selected).caps;
                         e.target.value ? (v[c] = +e.target.value) : delete v[c];
                       })
                     }
@@ -892,10 +892,10 @@ function App() {
                   <button
                     type="button"
                     className="remove-cap"
-                    disabled={!(capsShared ? d.globalCaps[p.currency]?.[c] : p.caps[c])}
+                    disabled={!(capsShared ? d.globalCaps[p.currency.toLowerCase()]?.[c] : p.caps[c])}
                     onClick={() =>
                       up((x) => {
-                        if (capsShared) delete x.globalCaps[p.currency]?.[c];
+                        if (capsShared) delete x.globalCaps[p.currency.toLowerCase()]?.[c];
                         else delete x.portfolios.find((q) => q.id === x.selected).caps[c];
                       })
                     }
@@ -904,7 +904,7 @@ function App() {
                   </button>
                 </div>
               ))}
-              {newCap ? <div className="cap-editor cap-new"><select value={newCap.category} onChange={(event) => setNewCap({ ...newCap, category: event.target.value })}>{d.categories.map((category) => <option key={category}>{category}</option>)}</select><input type="number" min="0.01" step=".01" placeholder="Monthly cap" value={newCap.amount} onChange={(event) => setNewCap({ ...newCap, amount: event.target.value })} /><button type="button" onClick={() => { const amount = Number(newCap.amount); if (!amount) return; up((x) => { const caps = capsShared ? (x.globalCaps[p.currency] ||= {}) : x.portfolios.find((q) => q.id === x.selected).caps; caps[newCap.category] = amount; }); setNewCap(null); }}>Add cap</button><button type="button" className="remove-cap" onClick={() => setNewCap(null)}>Cancel</button></div> : <button type="button" className="add-cap" onClick={() => setNewCap({ category: d.categories[0], amount: "" })}>+ Add cap</button>}
+              {newCap ? <div className="cap-editor cap-new"><select value={newCap.category} onChange={(event) => setNewCap({ ...newCap, category: event.target.value })}>{d.categories.map((category) => <option key={category}>{category}</option>)}</select><input type="number" min="0.01" step=".01" placeholder="Monthly cap" value={newCap.amount} onChange={(event) => setNewCap({ ...newCap, amount: event.target.value })} /><button type="button" onClick={() => { const amount = Number(newCap.amount); if (!amount) return; up((x) => { const caps = capsShared ? (x.globalCaps[p.currency.toLowerCase()] ||= {}) : x.portfolios.find((q) => q.id === x.selected).caps; caps[newCap.category] = amount; }); setNewCap(null); }}>Add cap</button><button type="button" className="remove-cap" onClick={() => setNewCap(null)}>Cancel</button></div> : <button type="button" className="add-cap" onClick={() => setNewCap({ category: d.categories[0], amount: "" })}>+ Add cap</button>}
               </section>}
             <button
               className="caps-toggle"
