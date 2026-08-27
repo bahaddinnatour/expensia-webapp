@@ -544,15 +544,15 @@ function App() {
             </article>;
           })}
         {tab === "History" && (
-          <Rows
-            rows={d.portfolios
-              .flatMap((x) =>
-                x.transactions.map((t) => ({ ...t, port: x.name })),
-              )
-              .sort((a, b) => b.createdAt.localeCompare(a.createdAt))}
-            p={p}
-            del={removeTransaction}
-          />
+          <>
+            <p className="history-context">Transactions in {p.name}</p>
+            <Rows
+              rows={[...p.transactions]
+                .sort((a, b) => b.createdAt.localeCompare(a.createdAt))}
+              p={p}
+              del={removeTransaction}
+            />
+          </>
         )}{" "}
         {tab === "Settings" && (
           <section className="settings">

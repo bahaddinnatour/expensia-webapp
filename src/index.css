@@ -229,6 +229,12 @@ h2 {
   font-size: 13px;
   font-weight: 700;
 }
+.history-context {
+  margin: 0 0 10px;
+  color: #526760;
+  font-size: 13px;
+  font-weight: 700;
+}
 .rows {
   display: grid;
   gap: 7px;
