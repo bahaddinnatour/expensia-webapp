@@ -51,7 +51,19 @@ const id = () => crypto.randomUUID(),
     plan.category,
     Number(plan.amount).toFixed(2),
     plan.portfolioId || "default",
+    plan.dueDay || 1,
+    Boolean(plan.savings),
+    plan.destinationId || "",
   ].join("|"),
+  dedupePlans = (plans) => {
+    const seen = new Set();
+    return plans.filter((plan) => {
+      const key = planKey(plan);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  },
   seed = {
     selected: "main",
     profile: "",
@@ -128,7 +140,7 @@ const fromFlutterState = (state) => ({
     caps: portfolio.categoryCaps || {},
     transactions: portfolio.transactions || [],
   })),
-  plans: (state.monthlyPlans || []).map((plan) => ({
+  plans: dedupePlans((state.monthlyPlans || []).map((plan) => ({
     id: plan.id,
     description: plan.description,
     category: plan.category,
@@ -140,7 +152,7 @@ const fromFlutterState = (state) => ({
     recurring: plan.recurring ?? true,
     last: plan.lastCreatedMonth || "",
     skipped: plan.lastSkippedMonth || "",
-  })),
+  }))),
 });
 const toFlutterState = (data, previous) => ({
   ...previous,
@@ -208,7 +220,7 @@ const fromSharedRecords = (records) => {
     globalCaps,
     categories: category.categories || cats,
     portfolios,
-    plans,
+    plans: dedupePlans(plans),
   };
 };
 const toSharedRecords = (userId, data) => [
@@ -218,7 +230,7 @@ const toSharedRecords = (userId, data) => [
     { user_id: userId, record_type: "portfolio", record_id: portfolio.id, payload: { id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), type: portfolio.type || "bank", creditLimit: portfolio.creditLimit || 0, categoryCaps: portfolio.caps || {} } },
     ...portfolio.transactions.map((transaction) => ({ user_id: userId, record_type: "transaction", record_id: transaction.id, payload: { ...transaction, portfolioId: portfolio.id }, deleted_at: null })),
   ]),
-  ...data.plans.map((plan) => ({ user_id: userId, record_type: "plan", record_id: plan.id, payload: { ...plan, savingsTransfer: Boolean(plan.savings), lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null } })),
+  ...dedupePlans(data.plans).map((plan) => ({ user_id: userId, record_type: "plan", record_id: plan.id, payload: { ...plan, savingsTransfer: Boolean(plan.savings), lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null } })),
 ];
 const syncSharedRecords = async (userId, data) => {
   const records = toSharedRecords(userId, data);
