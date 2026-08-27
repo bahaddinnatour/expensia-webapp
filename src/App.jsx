@@ -40,6 +40,12 @@ const K = "expensia-web-session",
   };
 const id = () => crypto.randomUUID(),
   mo = () => new Date().toISOString().slice(0, 7),
+  localDateTime = (value) => {
+    const date = new Date(value);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+  },
   planKey = (plan) => [
     plan.description.trim().toLowerCase(),
     plan.category,
@@ -203,6 +209,7 @@ function App() {
   const [d, setD] = useState(readData),
     [tab, setTab] = useState("Home"),
     [form, setForm] = useState(null);
+  const [editing, setEditing] = useState(null);
   const [capsOpen, setCapsOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [plansOpen, setPlansOpen] = useState(false);
@@ -379,6 +386,35 @@ function App() {
         .then(({ error }) => error && setSyncError(error.message));
     }
   };
+  const saveTransactionEdit = (event) => {
+    event.preventDefault();
+    if (!editing) return;
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    const amount = Number(values.amount);
+    if (!values.description.trim() || !Number.isFinite(amount) || amount <= 0) return;
+    up((next) => {
+      let original;
+      next.portfolios.forEach((portfolio) => {
+        const index = portfolio.transactions.findIndex(
+          (transaction) => transaction.id === editing.transaction.id,
+        );
+        if (index >= 0) original = portfolio.transactions.splice(index, 1)[0];
+      });
+      const destination = next.portfolios.find(
+        (portfolio) => portfolio.id === values.portfolio,
+      );
+      if (!original || !destination) return;
+      destination.transactions.unshift({
+        ...original,
+        description: values.description.trim(),
+        category: values.category,
+        amount,
+        inflow: values.type === "in",
+        createdAt: new Date(values.createdAt).toISOString(),
+      });
+    });
+    setEditing(null);
+  };
   const resetPortfolio = (portfolio) => {
     if (!confirm(`Reset ${portfolio.name}? This permanently clears its transactions and resets its amount to zero. Category caps and portfolio settings will stay.`)) return;
     up((next) => {
@@ -536,6 +572,7 @@ function App() {
               rows={p.transactions.slice(0, 8)}
               p={p}
               del={removeTransaction}
+              edit={(transaction) => setEditing({ transaction, portfolioId: p.id })}
             />
           </>
         )}
@@ -636,6 +673,7 @@ function App() {
                 .sort((a, b) => b.createdAt.localeCompare(a.createdAt))}
               p={p}
               del={removeTransaction}
+              edit={(transaction) => setEditing({ transaction, portfolioId: p.id })}
             />
           </>
         )}{" "}
@@ -885,10 +923,32 @@ function App() {
           </form>
         </div>
       )}
+      {editing && (
+        <div className="modal">
+          <form onSubmit={saveTransactionEdit}>
+            <h2>Edit transaction</h2>
+            <input name="description" defaultValue={editing.transaction.description} placeholder="Description" required />
+            <input name="amount" type="number" step=".01" min="0.01" defaultValue={editing.transaction.amount} required />
+            <input name="createdAt" type="datetime-local" defaultValue={localDateTime(editing.transaction.createdAt)} required />
+            <select name="portfolio" defaultValue={editing.portfolioId}>
+              {d.portfolios.map((portfolio) => <option key={portfolio.id} value={portfolio.id}>{portfolio.name}</option>)}
+            </select>
+            <select name="category" defaultValue={editing.transaction.category}>
+              {d.categories.map((category) => <option key={category}>{category}</option>)}
+            </select>
+            <select name="type" defaultValue={editing.transaction.inflow ? "in" : "out"}>
+              <option value="in">Inflow</option>
+              <option value="out">Outflow</option>
+            </select>
+            <button>Save changes</button>
+            <button type="button" onClick={() => setEditing(null)}>Cancel</button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
-function Rows({ rows, p, del }) {
+function Rows({ rows, p, del, edit }) {
   return (
     <div className="rows">
       {rows.map((t) => (
@@ -905,6 +965,7 @@ function Rows({ rows, p, del }) {
             {t.inflow ? "+" : "−"}
             {fmt(p, t.amount)}
           </strong>
+          <button type="button" onClick={() => edit(t)}>Edit</button>
           <button onClick={() => del(t)}>×</button>
         </article>
       ))}
