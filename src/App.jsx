@@ -266,7 +266,13 @@ function App() {
     }
     const sharedData = fromSharedRecords(records || []);
     if (mobile?.data?.portfolios) mobileStateRef.current = mobile.data;
-    if (sharedData) setD(sharedData);
+    if (sharedData) {
+      const mobileData = mobile?.data?.portfolios ? fromFlutterState(mobile.data) : null;
+      if (!Object.keys(sharedData.globalCaps || {}).length && Object.keys(mobileData?.globalCaps || {}).length) {
+        sharedData.globalCaps = mobileData.globalCaps;
+      }
+      setD(sharedData);
+    }
     else if (saved?.data?.portfolios && (!mobile?.data?.portfolios || saved.updated_at > mobile.updated_at)) setD(saved.data);
     else if (mobile?.data?.portfolios) setD(fromFlutterState(mobile.data));
     setCloudReady(true);
