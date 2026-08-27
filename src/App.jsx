@@ -40,6 +40,12 @@ const K = "expensia-web-session",
   };
 const id = () => crypto.randomUUID(),
   mo = () => new Date().toISOString().slice(0, 7),
+  planKey = (plan) => [
+    plan.description.trim().toLowerCase(),
+    plan.category,
+    Number(plan.amount).toFixed(2),
+    plan.portfolioId || "default",
+  ].join("|"),
   seed = {
     selected: "main",
     profile: "",
@@ -377,6 +383,38 @@ function App() {
       next.plans = next.plans.map((plan) => (plan.portfolioId || "main") === portfolio.id ? { ...plan, last: "", skipped: "" } : plan);
     });
   };
+  const archivePlans = (planIds) => {
+    if (!user || !planIds.length) return;
+    supabase.from("finance_records")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("user_id", user.id)
+      .eq("record_type", "plan")
+      .in("record_id", planIds)
+      .then(({ error }) => error && setSyncError(error.message));
+  };
+  const deleteMonthlyPlan = (plan) => {
+    if (!confirm(`Delete monthly plan \"${plan.description}\"?`)) return;
+    up((next) => {
+      next.plans = next.plans.filter((item) => item.id !== plan.id);
+    });
+    archivePlans([plan.id]);
+  };
+  const removeDuplicatePlans = () => {
+    const seen = new Set();
+    const duplicates = d.plans.filter((plan) => {
+      const key = planKey(plan);
+      if (seen.has(key)) return true;
+      seen.add(key);
+      return false;
+    });
+    if (!duplicates.length) return;
+    if (!confirm(`Remove ${duplicates.length} duplicate monthly plan${duplicates.length === 1 ? "" : "s"}?`)) return;
+    const duplicateIds = new Set(duplicates.map((plan) => plan.id));
+    up((next) => {
+      next.plans = next.plans.filter((plan) => !duplicateIds.has(plan.id));
+    });
+    archivePlans([...duplicateIds]);
+  };
   const deletePortfolio = (portfolio) => {
     const replacement = d.portfolios.find((item) =>
       item.id !== portfolio.id && item.name === "My portfolio SNB",
@@ -644,6 +682,9 @@ function App() {
             </button>
             {plansOpen && (
               <div className="plans-settings">
+                <button className="remove-duplicates" onClick={removeDuplicatePlans}>
+                  Remove duplicate plans
+                </button>
                 {d.plans.map((plan) => (
                   <div className="plan-editor" key={plan.id}>
                     <input
@@ -713,12 +754,7 @@ function App() {
                     </label>
                     <button
                       className="delete-plan"
-                      onClick={() =>
-                        up(
-                          (x) =>
-                            (x.plans = x.plans.filter((q) => q.id !== plan.id)),
-                        )
-                      }
+                      onClick={() => deleteMonthlyPlan(plan)}
                     >
                       Delete
                     </button>
