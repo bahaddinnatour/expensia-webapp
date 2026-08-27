@@ -312,9 +312,11 @@ function App() {
     });
   };
   const resetPortfolio = (portfolio) => {
-    if (!confirm(`Reset ${portfolio.name}? This permanently clears its transactions and restores its opening balance. Category caps and portfolio settings will stay.`)) return;
+    if (!confirm(`Reset ${portfolio.name}? This permanently clears its transactions and resets its amount to zero. Category caps and portfolio settings will stay.`)) return;
     up((next) => {
-      next.portfolios.find((item) => item.id === portfolio.id).transactions = [];
+      const target = next.portfolios.find((item) => item.id === portfolio.id);
+      target.transactions = [];
+      target.opening = 0;
       next.plans = next.plans.map((plan) => (plan.portfolioId || "main") === portfolio.id ? { ...plan, last: "" } : plan);
     });
   };
