@@ -282,6 +282,13 @@ h2 {
   cursor: not-allowed;
   opacity: .45;
 }
+.caps-settings { display: grid; gap: 8px; }
+.cap-mode { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; background: #eef5f1; border-radius: 8px; }
+.cap-mode small { display: block; margin-top: 3px; }
+.cap-editor { display: grid; grid-template-columns: 28px minmax(140px, 1fr) 150px auto; gap: 10px; align-items: center; padding: 10px 12px; background: #fbfcfa; border: 1px solid #e0e6e0; border-radius: 8px; }
+.cap-editor input { min-width: 0; }
+.cap-editor .remove-cap { margin-left: 0; }
+@media (max-width: 700px) { .cap-editor { grid-template-columns: 24px 1fr; } .cap-editor input, .cap-editor .remove-cap { grid-column: 2; } .cap-mode { align-items: flex-start; flex-direction: column; } }
 .modal {
   position: fixed;
   inset: 0;

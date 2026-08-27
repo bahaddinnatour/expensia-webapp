@@ -856,12 +856,14 @@ function App() {
               Monthly category caps <span>{capsOpen ? "-" : "+"}</span>
             </button>
             {capsOpen &&
-              <><select value={capsShared ? "shared" : "portfolio"} onChange={(event) => setCapsShared(event.target.value === "shared")}><option value="portfolio">Per portfolio</option><option value="shared">Shared across {p.currency} portfolios</option></select><p>{capsShared ? `These caps are shared by every ${p.currency} portfolio.` : `These caps apply only to ${p.name}.`}</p>
+              <section className="caps-settings"><div className="cap-mode"><div><b>Cap scope</b><small>{capsShared ? `One cap shared by all ${p.currency} portfolios.` : `A separate cap for ${p.name}.`}</small></div><select value={capsShared ? "shared" : "portfolio"} onChange={(event) => setCapsShared(event.target.value === "shared")}><option value="portfolio">Per portfolio</option><option value="shared">Shared: {p.currency}</option></select></div>
               {d.categories.map((c) => (
-                <label key={c}>
+                <div className="cap-editor" key={c}>
                   {icon[c] || "•"} {c}
                   <input
                     type="number"
+                    min="0"
+                    step=".01"
                     placeholder="No cap"
                     value={(capsShared ? d.globalCaps[p.currency]?.[c] : p.caps[c]) || ""}
                     onChange={(e) =>
@@ -884,8 +886,8 @@ function App() {
                   >
                     Remove cap
                   </button>
-                </label>
-              ))}</>}
+                </div>
+              ))}</section>}
             <button
               className="caps-toggle"
               onClick={() => setCategoriesOpen(!categoriesOpen)}
