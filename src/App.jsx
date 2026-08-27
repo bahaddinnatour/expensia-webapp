@@ -864,6 +864,7 @@ function App() {
               <section className="caps-settings"><div className="cap-mode"><div><b>Cap scope</b><small>{capsShared ? `One cap shared by all ${p.currency} portfolios.` : `A separate cap for ${p.name}.`}</small></div><select value={capsShared ? "shared" : "portfolio"} onChange={(event) => setCapsShared(event.target.value === "shared")}><option value="portfolio">Per portfolio</option><option value="shared">Shared: {p.currency}</option></select></div>
               {d.categories.filter((c) => capsShared ? d.globalCaps[p.currency]?.[c] : p.caps[c]).map((c) => (
                 <div className="cap-editor" key={c}>
+                  <span className={`cap-scope ${capsShared ? "shared" : ""}`}>{capsShared ? `Shared ${p.currency}` : "Per portfolio"}</span>
                   {icon[c] || "•"} {c}
                   <input
                     type="number"
