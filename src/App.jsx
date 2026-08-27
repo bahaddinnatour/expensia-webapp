@@ -220,6 +220,7 @@ function App() {
     [tab, setTab] = useState("Home"),
     [form, setForm] = useState(null);
   const [recentScope, setRecentScope] = useState("portfolio");
+  const [reportScope, setReportScope] = useState("portfolio");
   const [editing, setEditing] = useState(null);
   const [capsOpen, setCapsOpen] = useState(false);
   const [capsShared, setCapsShared] = useState(false);
@@ -352,10 +353,12 @@ function App() {
       );
       setForm(null);
     },
+    reportPortfolios = reportScope === "global" ? d.portfolios.filter((portfolio) => portfolio.currency === p.currency) : [p],
+    reportOut = reportPortfolios.flatMap((portfolio) => portfolio.transactions).filter((t) => !t.inflow),
     out = p.transactions.filter((t) => !t.inflow),
     total = out.reduce((s, t) => s + t.amount, 0),
     catsum = Object.entries(
-      out.reduce(
+      reportOut.reduce(
         (a, t) => ((a[t.category] = (a[t.category] || 0) + t.amount), a),
         {},
       ),
@@ -597,10 +600,10 @@ function App() {
         )}
         {tab === "Report" && (
           <>
-            <p>Category outflow in {p.name}</p>
+            <div className="recent-heading"><p>Category outflow in {reportScope === "global" ? `all ${p.currency} portfolios` : p.name}</p><div className="scope-switch"><button className={reportScope === "portfolio" ? "on" : ""} onClick={() => setReportScope("portfolio")}>This portfolio</button><button className={reportScope === "global" ? "on" : ""} onClick={() => setReportScope("global")}>All {p.currency}</button></div></div>
             {catsum.map(([c, n]) => {
-              let cap = p.caps[c],
-                used = out
+              let cap = reportScope === "global" ? d.globalCaps[p.currency]?.[c] : p.caps[c],
+                used = reportOut
                   .filter(
                     (t) => t.category === c && t.createdAt.slice(0, 7) === mo(),
                   )
