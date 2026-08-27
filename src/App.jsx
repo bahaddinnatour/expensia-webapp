@@ -395,7 +395,22 @@ function App() {
         return { category, cap: Number(cap), spent, ratio: Number(cap) ? spent / Number(cap) : 0 };
       }).filter((alert) => alert.ratio >= .9).sort((a, b) => b.ratio - a.ratio);
       return { currency, portfolios, inflow, outflow, netWorth, alerts };
-    });
+    }),
+    calendarStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+    calendarDays = new Date(calendarStart.getFullYear(), calendarStart.getMonth() + 1, 0).getDate(),
+    calendarCells = Array.from({ length: calendarStart.getDay() + calendarDays }, (_, index) => index < calendarStart.getDay() ? null : index - calendarStart.getDay() + 1);
+  const createPlanTransaction = (plan) => up((next) => {
+    const source = next.portfolios.find((portfolio) => portfolio.id === plan.portfolioId) || next.portfolios.find((portfolio) => portfolio.id === next.selected) || next.portfolios[0];
+    if (!source) return;
+    source.transactions.unshift({ id: id(), description: plan.description, category: plan.category, amount: plan.amount, inflow: false, createdAt: new Date().toISOString() });
+    const destination = next.portfolios.find((portfolio) => portfolio.id === plan.destinationId);
+    if (plan.savings && destination && destination.id !== source.id) destination.transactions.unshift({ id: id(), description: plan.description, category: plan.category, amount: plan.amount, inflow: true, createdAt: new Date().toISOString() });
+    next.plans.find((item) => item.id === plan.id).last = mo();
+  });
+  const skipPlanTransaction = (plan) => {
+    if (!confirm(`Skip ${plan.description} for this month? No transaction will be created.`)) return;
+    up((next) => { next.plans.find((item) => item.id === plan.id).skipped = mo(); });
+  };
   const removeTransaction = (transaction) => {
     if (!confirm("Delete this transaction and reverse its balance effect?")) return;
     const plan = d.plans.find(
@@ -680,8 +695,18 @@ function App() {
             })}
           </>
         )}
-        {tab === "Plans" &&
-          d.plans.map((x) => {
+        {tab === "Plans" && <>
+          <section className="plan-calendar">
+            <div className="plan-calendar-heading"><div><small>RECURRING BILLS</small><h3>{calendarStart.toLocaleString("en", { month: "long", year: "numeric" })}</h3></div><span>{d.plans.filter((plan) => plan.last !== mo() && plan.skipped !== mo()).length} pending</span></div>
+            <div className="calendar-weekdays">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <small key={day}>{day}</small>)}</div>
+            <div className="calendar-grid">{calendarCells.map((day, index) => {
+              const plans = day ? d.plans.filter((plan) => Number(plan.dueDay || 1) === day) : [];
+              return <div className={`calendar-day ${day === new Date().getDate() ? "today" : ""}`} key={`${day || "blank"}-${index}`}>{day && <><b>{day}</b>{plans.map((plan) => { const done = plan.last === mo() || plan.skipped === mo(); return <button className={`calendar-plan ${done ? "done" : ""}`} key={plan.id} title={`${plan.description}: ${done ? plan.skipped === mo() ? "Skipped" : "Created" : "Pending"}`} onClick={() => !done && createPlanTransaction(plan)}>{icon[plan.category] || "*"} {plan.description}</button>; })}</>}</div>;
+            })}</div>
+            <small className="calendar-help">Select a pending bill to create it now. Due-date reminders are sent on Android for recurring plans.</small>
+          </section>
+          <div className="plans-list">
+          {d.plans.map((x) => {
             const skipped = x.skipped === mo();
             const completed = x.last === mo() || skipped;
             return <article className="plan" key={x.id}>
@@ -694,48 +719,14 @@ function App() {
                 </small>
               </div>
               <b>{fmt(p, x.amount)}</b>
-              {!completed && <button
-                onClick={() =>
-                  up((z) => {
-                    const source = z.portfolios.find(
-                      (q) => q.id === x.portfolioId,
-                    ) || z.portfolios.find((q) => q.id === z.selected) || z.portfolios[0];
-                    if (!source) return;
-                    source.transactions.unshift({
-                      id: id(),
-                      description: x.description,
-                      category: x.category,
-                      amount: x.amount,
-                      inflow: false,
-                      createdAt: new Date().toISOString(),
-                    });
-                    const destination = z.portfolios.find(
-                      (q) => q.id === x.destinationId,
-                    );
-                    if (x.savings && destination && destination.id !== source.id)
-                      destination.transactions.unshift({
-                          id: id(),
-                          description: x.description,
-                          category: x.category,
-                          amount: x.amount,
-                          inflow: true,
-                          createdAt: new Date().toISOString(),
-                        });
-                    const plan = z.plans.find((q) => q.id === x.id);
-                    plan.portfolioId = source.id;
-                    plan.last = mo();
-                  })
-                }
-              >
+              {!completed && <button onClick={() => createPlanTransaction(x)}>
                 Create now
               </button>}
-              {!completed && <button className="skip-plan" onClick={() => {
-                if (!confirm(`Skip ${x.description} for this month? No transaction will be created.`)) return;
-                up((z) => { z.plans.find((q) => q.id === x.id).skipped = mo(); });
-              }}>Skip this month</button>}
+              {!completed && <button className="skip-plan" onClick={() => skipPlanTransaction(x)}>Skip this month</button>}
               {completed && <span className="plan-status">{skipped ? "Skipped this month" : "Created this month"}</span>}
             </article>;
-          })}
+          })}</div>
+        </>}
         {tab === "History" && (
           <>
             <div className="recent-heading"><p className="history-context">Transactions in {historyScope === "global" ? "all portfolios" : p.name}</p><div className="scope-switch"><button className={historyScope === "portfolio" ? "on" : ""} onClick={() => setHistoryScope("portfolio")}>This portfolio</button><button className={historyScope === "global" ? "on" : ""} onClick={() => setHistoryScope("global")}>All portfolios</button></div></div>
