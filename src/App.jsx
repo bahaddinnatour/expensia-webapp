@@ -230,7 +230,7 @@ function App() {
     [tab, setTab] = useState("Home"),
     [form, setForm] = useState(null);
   const [recentScope, setRecentScope] = useState("portfolio");
-  const [reportScope, setReportScope] = useState("portfolio");
+  const [reportScope, setReportScope] = useState("global");
   const [editing, setEditing] = useState(null);
   const [capsOpen, setCapsOpen] = useState(false);
   const [capsShared, setCapsShared] = useState(false);
@@ -617,7 +617,7 @@ function App() {
         )}
         {tab === "Report" && (
           <>
-            <div className="recent-heading"><p>Category outflow in {reportScope === "global" ? `all ${p.currency} portfolios` : p.name}</p><div className="scope-switch"><button className={reportScope === "portfolio" ? "on" : ""} onClick={() => setReportScope("portfolio")}>This portfolio</button><button className={reportScope === "global" ? "on" : ""} onClick={() => setReportScope("global")}>All {p.currency}</button></div></div>
+            <div className="recent-heading"><p>Category outflow in {reportScope === "global" ? "all portfolios" : p.name}</p><div className="scope-switch"><button className={reportScope === "portfolio" ? "on" : ""} onClick={() => setReportScope("portfolio")}>This portfolio</button><button className={reportScope === "global" ? "on" : ""} onClick={() => setReportScope("global")}>All portfolios</button></div></div>
             {catsum.map(([c, n]) => {
               let cap = reportScope === "global" ? d.globalCaps[p.currency.toLowerCase()]?.[c] : p.caps[c],
                 used = reportOut
