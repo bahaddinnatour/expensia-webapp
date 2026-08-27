@@ -222,6 +222,7 @@ function App() {
   const [editing, setEditing] = useState(null);
   const [capsOpen, setCapsOpen] = useState(false);
   const [capsShared, setCapsShared] = useState(false);
+  const [newCap, setNewCap] = useState(null);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [plansOpen, setPlansOpen] = useState(false);
   const [user, setUser] = useState(null);
@@ -857,7 +858,7 @@ function App() {
             </button>
             {capsOpen &&
               <section className="caps-settings"><div className="cap-mode"><div><b>Cap scope</b><small>{capsShared ? `One cap shared by all ${p.currency} portfolios.` : `A separate cap for ${p.name}.`}</small></div><select value={capsShared ? "shared" : "portfolio"} onChange={(event) => setCapsShared(event.target.value === "shared")}><option value="portfolio">Per portfolio</option><option value="shared">Shared: {p.currency}</option></select></div>
-              {d.categories.map((c) => (
+              {d.categories.filter((c) => capsShared ? d.globalCaps[p.currency]?.[c] : p.caps[c]).map((c) => (
                 <div className="cap-editor" key={c}>
                   {icon[c] || "•"} {c}
                   <input
@@ -887,7 +888,9 @@ function App() {
                     Remove cap
                   </button>
                 </div>
-              ))}</section>}
+              ))}
+              {newCap ? <div className="cap-editor cap-new"><select value={newCap.category} onChange={(event) => setNewCap({ ...newCap, category: event.target.value })}>{d.categories.map((category) => <option key={category}>{category}</option>)}</select><input type="number" min="0.01" step=".01" placeholder="Monthly cap" value={newCap.amount} onChange={(event) => setNewCap({ ...newCap, amount: event.target.value })} /><button type="button" onClick={() => { const amount = Number(newCap.amount); if (!amount) return; up((x) => { const caps = capsShared ? (x.globalCaps[p.currency] ||= {}) : x.portfolios.find((q) => q.id === x.selected).caps; caps[newCap.category] = amount; }); setNewCap(null); }}>Add cap</button><button type="button" className="remove-cap" onClick={() => setNewCap(null)}>Cancel</button></div> : <button type="button" className="add-cap" onClick={() => setNewCap({ category: d.categories[0], amount: "" })}>+ Add cap</button>}
+              </section>}
             <button
               className="caps-toggle"
               onClick={() => setCategoriesOpen(!categoriesOpen)}
