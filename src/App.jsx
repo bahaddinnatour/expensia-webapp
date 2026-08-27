@@ -55,6 +55,7 @@ const id = () => crypto.randomUUID(),
   seed = {
     selected: "main",
     profile: "",
+    globalCaps: {},
     categories: cats,
     portfolios: [
       {
@@ -115,6 +116,7 @@ const readData = () => {
 const fromFlutterState = (state) => ({
   selected: state.selectedId || "default",
   profile: state.name || "",
+  globalCaps: state.globalCategoryCaps || {},
   categories: state.categories || cats,
   portfolios: (state.portfolios || []).map((portfolio) => ({
     id: portfolio.id,
@@ -144,6 +146,7 @@ const toFlutterState = (data, previous) => ({
   ...previous,
   name: data.profile || previous.name || "",
   selectedId: data.selected,
+  globalCategoryCaps: data.globalCaps || {},
   categories: data.categories,
   portfolios: data.portfolios.map((portfolio) => {
     const existing = (previous.portfolios || []).find((item) => item.id === portfolio.id) || {};
@@ -192,13 +195,14 @@ const fromSharedRecords = (records) => {
   return {
     selected,
     profile: profile.name || "",
+    globalCaps: profile.globalCategoryCaps || {},
     categories: category.categories || cats,
     portfolios,
     plans,
   };
 };
 const toSharedRecords = (userId, data) => [
-  { user_id: userId, record_type: "profile", record_id: "settings", payload: { name: data.profile, selectedId: data.selected } },
+  { user_id: userId, record_type: "profile", record_id: "settings", payload: { name: data.profile, selectedId: data.selected, globalCategoryCaps: data.globalCaps || {} } },
   { user_id: userId, record_type: "category", record_id: "all", payload: { categories: data.categories, icons: {} } },
   ...data.portfolios.flatMap((portfolio) => [
     { user_id: userId, record_type: "portfolio", record_id: portfolio.id, payload: { id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), type: portfolio.type || "bank", creditLimit: portfolio.creditLimit || 0, categoryCaps: portfolio.caps || {} } },
@@ -217,6 +221,7 @@ function App() {
     [form, setForm] = useState(null);
   const [editing, setEditing] = useState(null);
   const [capsOpen, setCapsOpen] = useState(false);
+  const [capsShared, setCapsShared] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [plansOpen, setPlansOpen] = useState(false);
   const [user, setUser] = useState(null);
@@ -313,8 +318,9 @@ function App() {
       e.preventDefault();
       let v = Object.fromEntries(new FormData(e.target)),
         q = d.portfolios.find((x) => x.id === v.portfolio),
+        sharedCap = d.globalCaps[q.currency]?.[v.category],
         spent =
-          q.transactions
+          (sharedCap ? d.portfolios.filter((portfolio) => portfolio.currency === q.currency).flatMap((portfolio) => portfolio.transactions) : q.transactions)
             .filter(
               (t) =>
                 !t.inflow &&
@@ -323,10 +329,10 @@ function App() {
             )
             .reduce((s, t) => s + t.amount, 0) + +v.amount;
       if (
-        q.caps[v.category] &&
-        spent >= q.caps[v.category] * 0.9 &&
+        (sharedCap || q.caps[v.category]) &&
+        spent >= (sharedCap || q.caps[v.category]) * 0.9 &&
         !confirm(
-          `Cap warning: ${((spent / q.caps[v.category]) * 100).toFixed(1)}% used. Save?`,
+          `Cap warning: ${((spent / (sharedCap || q.caps[v.category])) * 100).toFixed(1)}% used. Save?`,
         )
       )
         return;
@@ -850,18 +856,17 @@ function App() {
               Monthly category caps <span>{capsOpen ? "-" : "+"}</span>
             </button>
             {capsOpen &&
-              d.categories.map((c) => (
+              <><select value={capsShared ? "shared" : "portfolio"} onChange={(event) => setCapsShared(event.target.value === "shared")}><option value="portfolio">Per portfolio</option><option value="shared">Shared across {p.currency} portfolios</option></select><p>{capsShared ? `These caps are shared by every ${p.currency} portfolio.` : `These caps apply only to ${p.name}.`}</p>
+              {d.categories.map((c) => (
                 <label key={c}>
                   {icon[c] || "•"} {c}
                   <input
                     type="number"
                     placeholder="No cap"
-                    value={p.caps[c] || ""}
+                    value={(capsShared ? d.globalCaps[p.currency]?.[c] : p.caps[c]) || ""}
                     onChange={(e) =>
                       up((x) => {
-                        let v = x.portfolios.find(
-                          (q) => q.id === x.selected,
-                        ).caps;
+                        let v = capsShared ? (x.globalCaps[p.currency] ||= {}) : x.portfolios.find((q) => q.id === x.selected).caps;
                         e.target.value ? (v[c] = +e.target.value) : delete v[c];
                       })
                     }
@@ -869,17 +874,18 @@ function App() {
                   <button
                     type="button"
                     className="remove-cap"
-                    disabled={!p.caps[c]}
+                    disabled={!(capsShared ? d.globalCaps[p.currency]?.[c] : p.caps[c])}
                     onClick={() =>
                       up((x) => {
-                        delete x.portfolios.find((q) => q.id === x.selected).caps[c];
+                        if (capsShared) delete x.globalCaps[p.currency]?.[c];
+                        else delete x.portfolios.find((q) => q.id === x.selected).caps[c];
                       })
                     }
                   >
                     Remove cap
                   </button>
                 </label>
-              ))}
+              ))}</>}
             <button
               className="caps-toggle"
               onClick={() => setCategoriesOpen(!categoriesOpen)}
