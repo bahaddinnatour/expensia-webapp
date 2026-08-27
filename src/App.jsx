@@ -380,7 +380,22 @@ function App() {
         (a, t) => ((a[t.category] = (a[t.category] || 0) + t.amount), a),
         {},
       ),
-    );
+    ),
+    dashboardCurrencies = [...new Set(d.portfolios.map((portfolio) => portfolio.currency))],
+    dashboard = dashboardCurrencies.map((currency) => {
+      const portfolios = d.portfolios.filter((portfolio) => portfolio.currency === currency);
+      const transactions = portfolios.flatMap((portfolio) => portfolio.transactions)
+        .filter((transaction) => transaction.createdAt.slice(0, 7) === mo());
+      const inflow = transactions.filter((transaction) => transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0);
+      const outflow = transactions.filter((transaction) => !transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0);
+      const netWorth = portfolios.reduce((sum, portfolio) => sum + bal(portfolio), 0);
+      const caps = d.globalCaps[currency.toLowerCase()] || {};
+      const alerts = Object.entries(caps).map(([category, cap]) => {
+        const spent = transactions.filter((transaction) => !transaction.inflow && transaction.category === category).reduce((sum, transaction) => sum + transaction.amount, 0);
+        return { category, cap: Number(cap), spent, ratio: Number(cap) ? spent / Number(cap) : 0 };
+      }).filter((alert) => alert.ratio >= .9).sort((a, b) => b.ratio - a.ratio);
+      return { currency, portfolios, inflow, outflow, netWorth, alerts };
+    });
   const removeTransaction = (transaction) => {
     if (!confirm("Delete this transaction and reverse its balance effect?")) return;
     const plan = d.plans.find(
@@ -539,7 +554,7 @@ function App() {
         <h1>
           MY <i>EXPENSIA</i>
         </h1>
-        {["Home", "Report", "Plans", "History", "Settings"].map((x) => (
+        {["Dashboard", "Home", "Report", "Plans", "History", "Settings"].map((x) => (
           <button className={tab === x ? "on" : ""} onClick={() => setTab(x)}>
             {x}
           </button>
@@ -569,6 +584,24 @@ function App() {
             ))}
           </select></div>
         </header>
+        {tab === "Dashboard" && (
+          <section className="dashboard">
+            <p className="dashboard-intro">This month across all portfolios. Values stay separated by currency.</p>
+            {dashboard.map((summary) => {
+              const format = (amount) => new Intl.NumberFormat("en", { style: "currency", currency: summary.currency }).format(amount);
+              return <article className="dashboard-currency" key={summary.currency}>
+                <div className="dashboard-currency-heading"><div><small>{summary.currency}</small><h3>{summary.currency} overview</h3></div><span>{summary.portfolios.length} portfolios</span></div>
+                <div className="dashboard-metrics">
+                  <div><small>MONTHLY INFLOW</small><b className="green">{format(summary.inflow)}</b></div>
+                  <div><small>MONTHLY OUTFLOW</small><b className="redtext">{format(summary.outflow)}</b></div>
+                  <div><small>NET CASHFLOW</small><b className={summary.inflow - summary.outflow >= 0 ? "green" : "redtext"}>{format(summary.inflow - summary.outflow)}</b></div>
+                  <div><small>NET WORTH</small><b>{format(summary.netWorth)}</b></div>
+                </div>
+                <div className="budget-alerts"><h4>Budget alerts</h4>{summary.alerts.length ? summary.alerts.map((alert) => <div className="budget-alert" key={alert.category}><span>{icon[alert.category] || "*"} {alert.category}</span><b>{(alert.ratio * 100).toFixed(0)}% used</b><small>{format(alert.spent)} of {format(alert.cap)} monthly cap</small></div>) : <p>No category is at 90% of its monthly cap.</p>}</div>
+              </article>;
+            })}
+          </section>
+        )}
         {tab === "Home" && (
           <>
             <section className="hero">
