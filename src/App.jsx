@@ -244,6 +244,7 @@ function App() {
   const [recentScope, setRecentScope] = useState("portfolio");
   const [historyScope, setHistoryScope] = useState("portfolio");
   const [reportScope, setReportScope] = useState("global");
+  const [trendMonth, setTrendMonth] = useState(mo());
   const [editing, setEditing] = useState(null);
   const [capsOpen, setCapsOpen] = useState(false);
   const [capsShared, setCapsShared] = useState(false);
@@ -466,6 +467,12 @@ function App() {
     if (!confirm(`Skip ${plan.description} for this month? No transaction will be created.`)) return;
     up((next) => { next.plans.find((item) => item.id === plan.id).skipped = mo(); });
   };
+  const trendMonths = Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(); date.setMonth(date.getMonth() - (5 - index));
+    return date.toISOString().slice(0, 7);
+  });
+  const trendTransactions = d.portfolios.flatMap((portfolio) => portfolio.transactions.map((transaction) => ({ ...transaction, portfolio }))).filter((transaction) => transaction.createdAt.slice(0, 7) === trendMonth);
+  const trendCategories = Object.entries(trendTransactions.filter((transaction) => !transaction.inflow).reduce((sum, transaction) => ((sum[transaction.category] = (sum[transaction.category] || 0) + transaction.amount), sum), {})).sort((a, b) => b[1] - a[1]);
   const removeTransaction = (transaction) => {
     if (!confirm("Delete this transaction and reverse its balance effect?")) return;
     const plan = d.plans.find(
@@ -624,7 +631,7 @@ function App() {
         <h1>
           MY <i>EXPENSIA</i>
         </h1>
-        {["Dashboard", "Home", "Report", "Bill calendar", "Plans", "History", "Settings"].map((x) => (
+        {["Dashboard", "Home", "Report", "Trends", "Bill calendar", "Plans", "History", "Settings"].map((x) => (
           <button className={tab === x ? "on" : ""} onClick={() => setTab(x)}>
             {x}
           </button>
@@ -750,6 +757,7 @@ function App() {
             })}
           </>
         )}
+        {tab === "Trends" && <section className="trends"><div className="recent-heading"><div><p>Spending trends</p><small>All portfolios, separated by currency in category totals.</small></div><select value={trendMonth} onChange={(event) => setTrendMonth(event.target.value)}>{trendMonths.map((month) => <option key={month}>{month}</option>)}</select></div><div className="trend-chart">{trendMonths.map((month) => { const transactions = d.portfolios.flatMap((portfolio) => portfolio.transactions).filter((transaction) => transaction.createdAt.slice(0, 7) === month); const inflow = transactions.filter((transaction) => transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0); const outflow = transactions.filter((transaction) => !transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0); const max = Math.max(...trendMonths.map((key) => d.portfolios.flatMap((portfolio) => portfolio.transactions).filter((transaction) => transaction.createdAt.slice(0, 7) === key).reduce((sum, transaction) => sum + transaction.amount, 0)), 1); return <div className="trend-month" key={month}><div><i className="trend-in" style={{ height: `${inflow / max * 100}%` }} /><i className="trend-out" style={{ height: `${outflow / max * 100}%` }} /></div><small>{month.slice(5)}</small></div>; })}</div><h3>Category outflow for {trendMonth}</h3>{trendCategories.length ? trendCategories.map(([category, amount]) => <article className="cap" key={category}><span>{icon[category] || "*"} {category}</span><b>{amount.toFixed(2)}</b><small>{trendTransactions.filter((transaction) => !transaction.inflow && transaction.category === category).map((transaction) => transaction.portfolio.currency).filter((value, index, list) => list.indexOf(value) === index).join(", ")}</small></article>) : <p>No outflows recorded for this month.</p>}</section>}
         {tab === "Bill calendar" &&
           <section className="plan-calendar">
             <div className="plan-calendar-heading"><div><small>RECURRING BILLS</small><h3>{calendarStart.toLocaleString("en", { month: "long", year: "numeric" })}</h3></div><span>{d.plans.filter((plan) => plan.last !== mo() && plan.skipped !== mo()).length} pending</span></div>
