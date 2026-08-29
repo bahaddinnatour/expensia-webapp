@@ -53,6 +53,11 @@ const id = () => crypto.randomUUID(),
   },
   planPeriod = (plan, date = new Date()) => (plan.frequency || "monthly") === "annual" ? String(date.getFullYear()) : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
   planCompleted = (plan, date = new Date()) => !planOccurs(plan, date) || plan.last === planPeriod(plan, date) || plan.skipped === planPeriod(plan, date),
+  planSort = (a, b) => {
+    const order = { monthly: 0, semiAnnual: 1, annual: 2 };
+    const frequency = (order[a.frequency || "monthly"] ?? 0) - (order[b.frequency || "monthly"] ?? 0);
+    return frequency || Number(a.dueDay || 1) - Number(b.dueDay || 1) || a.description.localeCompare(b.description);
+  },
   localDateTime = (value) => {
     const date = new Date(value);
     return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
@@ -850,7 +855,7 @@ function App() {
         }
         {tab === "Plans" && <>
           <div className="plans-list">
-          {d.plans.map((x) => {
+          {[...d.plans].sort(planSort).map((x) => {
             const skipped = x.skipped === planPeriod(x);
             const completed = planCompleted(x);
             return <article className="plan" key={x.id}>
