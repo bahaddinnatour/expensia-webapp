@@ -440,9 +440,28 @@ function App() {
       );
       setForm(null);
     },
+    transferMoney = (e) => {
+      e.preventDefault();
+      const values = Object.fromEntries(new FormData(e.currentTarget));
+      const amount = Number(values.amount);
+      const source = d.portfolios.find((portfolio) => portfolio.id === values.source);
+      const destination = d.portfolios.find((portfolio) => portfolio.id === values.destination);
+      if (!source || !destination || source.id === destination.id || source.currency !== destination.currency || !Number.isFinite(amount) || amount <= 0) {
+        alert("Choose two different portfolios with the same currency and enter a valid amount.");
+        return;
+      }
+      const transferId = `transfer_${id()}`;
+      const createdAt = new Date().toISOString();
+      const description = values.description.trim() || (destination.type === "creditCard" ? `Payment to ${destination.name}` : `Transfer to ${destination.name}`);
+      up((next) => {
+        next.portfolios.find((portfolio) => portfolio.id === source.id).transactions.unshift({ id: id(), description, category: "Personal transfer", amount, inflow: false, createdAt, transferId });
+        next.portfolios.find((portfolio) => portfolio.id === destination.id).transactions.unshift({ id: id(), description: values.description.trim() || `Transfer from ${source.name}`, category: "Personal transfer", amount, inflow: true, createdAt, transferId });
+      });
+      setForm(null);
+    },
     reportPortfolios = reportScope === "global" ? d.portfolios.filter((portfolio) => portfolio.currency === p.currency) : [p],
-    reportOut = reportPortfolios.flatMap((portfolio) => portfolio.transactions).filter((t) => !t.inflow),
-    out = p.transactions.filter((t) => !t.inflow),
+    reportOut = reportPortfolios.flatMap((portfolio) => portfolio.transactions).filter((t) => !t.inflow && !t.transferId),
+    out = p.transactions.filter((t) => !t.inflow && !t.transferId),
     total = out.reduce((s, t) => s + t.amount, 0),
     catsum = Object.entries(
       reportOut.reduce(
@@ -452,7 +471,7 @@ function App() {
     ),
     dashboard = d.portfolios.map((portfolio) => {
       const transactions = portfolio.transactions
-        .filter((transaction) => transaction.createdAt.slice(0, 7) === mo());
+        .filter((transaction) => !transaction.transferId && transaction.createdAt.slice(0, 7) === mo());
       const inflow = transactions.filter((transaction) => transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0);
       const outflow = transactions.filter((transaction) => !transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0);
       const netWorth = bal(portfolio);
@@ -503,7 +522,7 @@ function App() {
     const date = new Date(); date.setMonth(date.getMonth() - (5 - index));
     return date.toISOString().slice(0, 7);
   });
-  const trendTransactions = d.portfolios.flatMap((portfolio) => portfolio.transactions.map((transaction) => ({ ...transaction, portfolio }))).filter((transaction) => transaction.createdAt.slice(0, 7) === trendMonth);
+  const trendTransactions = d.portfolios.flatMap((portfolio) => portfolio.transactions.map((transaction) => ({ ...transaction, portfolio }))).filter((transaction) => !transaction.transferId && transaction.createdAt.slice(0, 7) === trendMonth);
   const trendInflow = trendTransactions.filter((transaction) => transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0);
   const trendOutflow = trendTransactions.filter((transaction) => !transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0);
   const trendTotal = trendInflow + trendOutflow || 1;
@@ -728,6 +747,7 @@ function App() {
                 <button className="red" onClick={() => setForm("out")}>
                   − {p.type === "creditCard" ? "Card charge" : "Outflow"}
                 </button>
+                <button className="secondary" onClick={() => setForm("transfer")}>Transfer</button>
               </div>
             </section>
             <section className="stats">
@@ -737,7 +757,7 @@ function App() {
                   {fmt(
                     p,
                     p.transactions
-                      .filter((t) => t.inflow)
+                      .filter((t) => t.inflow && !t.transferId)
                       .reduce((s, t) => s + t.amount, 0),
                   )}
                 </b>
@@ -1073,9 +1093,9 @@ function App() {
       </main>
       {form && (
         <div className="modal">
-          <form onSubmit={add}>
-            <h2>Add {form === "in" ? "inflow" : "outflow"}</h2>
-            <input name="description" placeholder="Description" required />
+          <form onSubmit={form === "transfer" ? transferMoney : add}>
+            <h2>{form === "transfer" ? "Transfer money" : `Add ${form === "in" ? "inflow" : "outflow"}`}</h2>
+            <input name="description" placeholder={form === "transfer" ? "Description (optional)" : "Description"} required={form !== "transfer"} />
             <input
               name="amount"
               type="number"
@@ -1083,7 +1103,15 @@ function App() {
               placeholder="Amount"
               required
             />
-            <select name="portfolio" defaultValue={p.id}>
+            {form === "transfer" ? <><select name="source" defaultValue={p.id}>
+              {d.portfolios.map((x) => (
+                <option value={x.id}>{portfolioIcon(x)} From: {x.name}</option>
+              ))}
+            </select><select name="destination" defaultValue={d.portfolios.find((x) => x.id !== p.id && x.currency === p.currency)?.id}>
+              {d.portfolios.filter((x) => x.id !== p.id && x.currency === p.currency).map((x) => (
+                <option value={x.id}>{portfolioIcon(x)} To: {x.name}</option>
+              ))}
+            </select></> : <><select name="portfolio" defaultValue={p.id}>
               {d.portfolios.map((x) => (
                 <option value={x.id}>{x.name}</option>
               ))}
@@ -1093,8 +1121,8 @@ function App() {
                 <option>{x}</option>
               ))}
             </select>
-            <input name="type" value={form} hidden />
-            <button>Save transaction</button>
+            <input name="type" value={form} hidden /></>}
+            <button>{form === "transfer" ? "Transfer" : "Save transaction"}</button>
             <button type="button" onClick={() => setForm(null)}>
               Cancel
             </button>
