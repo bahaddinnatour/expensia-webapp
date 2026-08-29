@@ -403,7 +403,16 @@ function App() {
       x.opening +
       x.transactions.reduce((s, t) => s + (t.inflow ? t.amount : -t.amount), 0),
     outstanding = (x) => Math.max(0, -bal(x)),
-    availableCredit = (x) => Math.max(0, (Number(x.creditLimit) || 0) - outstanding(x)),
+    availableCredit = (x) => Math.max(0, (Number(x.creditLimit) || 0) + bal(x)),
+    setCurrentAmount = (portfolioId, target) => up((next) => {
+      const portfolio = next.portfolios.find((item) => item.id === portfolioId);
+      const amount = Number(target);
+      if (!portfolio || !Number.isFinite(amount) || amount < 0) return;
+      const transactionNet = portfolio.transactions.reduce((sum, transaction) => sum + (transaction.inflow ? transaction.amount : -transaction.amount), 0);
+      portfolio.opening = portfolio.type === "creditCard"
+        ? amount - (Number(portfolio.creditLimit) || 0) - transactionNet
+        : amount - transactionNet;
+    }),
     add = (e) => {
       e.preventDefault();
       let v = Object.fromEntries(new FormData(e.target)),
@@ -884,6 +893,12 @@ function App() {
                     <option>USD</option>
                     <option>JOD</option>
                   </select><select value={x.iconKey || (x.type === "creditCard" ? "card" : "bank")} aria-label="Portfolio icon" onChange={(e) => up((z) => (z.portfolios.find((q) => q.id === x.id).iconKey = e.target.value))}>{Object.entries(portfolioIcons).map(([key, glyph]) => <option value={key}>{glyph} {key.toUpperCase()}</option>)}</select><select value={x.type || "bank"} onChange={(e) => up((z) => (z.portfolios.find((q) => q.id === x.id).type = e.target.value))}><option value="bank">Bank / cash</option><option value="creditCard">Credit card</option></select>{x.type === "creditCard" && <input type="number" min="0" step=".01" aria-label="Credit limit" value={x.creditLimit || ""} placeholder="Credit limit" onChange={(e) => up((z) => (z.portfolios.find((q) => q.id === x.id).creditLimit = Number(e.target.value) || 0))} />}<button type="button" className="reset-portfolio" onClick={() => resetPortfolio(x)}>Reset data</button><button type="button" className="delete-portfolio" onClick={() => deletePortfolio(x)}>Delete</button></span>
+                <button type="button" className="secondary" onClick={() => {
+                  const currentAmount = x.type === "creditCard" ? availableCredit(x) : bal(x);
+                  const label = x.type === "creditCard" ? "Available credit" : "Current balance";
+                  const value = prompt(`${label} for ${x.name} (${x.currency})`, currentAmount.toFixed(2));
+                  if (value !== null) setCurrentAmount(x.id, value);
+                }}>Set {x.type === "creditCard" ? "available credit" : "current balance"}</button>
               </label>
             ))}
             <button
