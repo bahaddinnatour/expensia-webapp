@@ -442,20 +442,18 @@ function App() {
         {},
       ),
     ),
-    dashboardCurrencies = [...new Set(d.portfolios.map((portfolio) => portfolio.currency))],
-    dashboard = dashboardCurrencies.map((currency) => {
-      const portfolios = d.portfolios.filter((portfolio) => portfolio.currency === currency);
-      const transactions = portfolios.flatMap((portfolio) => portfolio.transactions)
+    dashboard = d.portfolios.map((portfolio) => {
+      const transactions = portfolio.transactions
         .filter((transaction) => transaction.createdAt.slice(0, 7) === mo());
       const inflow = transactions.filter((transaction) => transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0);
       const outflow = transactions.filter((transaction) => !transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0);
-      const netWorth = portfolios.reduce((sum, portfolio) => sum + bal(portfolio), 0);
-      const caps = d.globalCaps[currency.toLowerCase()] || {};
+      const netWorth = bal(portfolio);
+      const caps = d.globalCaps[portfolio.currency.toLowerCase()] || portfolio.caps || {};
       const alerts = Object.entries(caps).map(([category, cap]) => {
         const spent = transactions.filter((transaction) => !transaction.inflow && transaction.category === category).reduce((sum, transaction) => sum + transaction.amount, 0);
         return { category, cap: Number(cap), spent, ratio: Number(cap) ? spent / Number(cap) : 0 };
       }).filter((alert) => alert.ratio >= .9).sort((a, b) => b.ratio - a.ratio);
-      return { currency, portfolios, inflow, outflow, netWorth, alerts };
+      return { portfolio, inflow, outflow, netWorth, alerts };
     }),
     activityNotifications = [
       ...d.portfolios.flatMap((portfolio) => portfolio.transactions.map((transaction) => ({
@@ -467,9 +465,9 @@ function App() {
         warning: false,
       }))),
       ...dashboard.flatMap((summary) => summary.alerts.map((alert) => ({
-        id: `cap:${summary.currency.toLowerCase()}:${alert.category}:${mo()}`,
+        id: `cap:${summary.portfolio.currency.toLowerCase()}:${summary.portfolio.id}:${alert.category}:${mo()}`,
         title: alert.ratio >= 1 ? "Monthly cap exceeded" : "Monthly cap warning",
-        message: `${alert.category}: ${(alert.ratio * 100).toFixed(0)}% of ${new Intl.NumberFormat("en", { style: "currency", currency: summary.currency }).format(alert.cap)}`,
+        message: `${summary.portfolio.name}: ${alert.category} ${(alert.ratio * 100).toFixed(0)}% of ${fmt(summary.portfolio, alert.cap)}`,
         createdAt: new Date().toISOString(),
         warning: true,
       }))),
@@ -692,11 +690,11 @@ function App() {
         </header>
         {tab === "Dashboard" && (
           <section className="dashboard">
-            <p className="dashboard-intro">This month across all portfolios. Values stay separated by currency.</p>
+            <p className="dashboard-intro">This month by portfolio. Each account stays separate.</p>
             {dashboard.map((summary) => {
-              const format = (amount) => new Intl.NumberFormat("en", { style: "currency", currency: summary.currency }).format(amount);
-              return <article className="dashboard-currency" key={summary.currency}>
-                <div className="dashboard-currency-heading"><div><small>{summary.currency}</small><h3>{summary.currency} overview</h3></div><span>{summary.portfolios.length} portfolios</span></div>
+              const format = (amount) => fmt(summary.portfolio, amount);
+              return <article className="dashboard-currency" key={summary.portfolio.id}>
+                <div className="dashboard-currency-heading"><div><small>{summary.portfolio.currency}</small><h3>{summary.portfolio.name.toUpperCase()}</h3></div><span>{summary.portfolio.type === "creditCard" ? "CREDIT CARD" : "BANK / CASH"}</span></div>
                 <div className="dashboard-metrics">
                   <div><small>MONTHLY INFLOW</small><b className="green">{format(summary.inflow)}</b></div>
                   <div><small>MONTHLY OUTFLOW</small><b className="redtext">{format(summary.outflow)}</b></div>
