@@ -39,6 +39,11 @@ const K = "expensia-web-session",
     "Car care": "🚗",
   };
 const id = () => crypto.randomUUID(),
+  portfolioIcons = {
+    bank: "\u{1F3E6}", wallet: "\u{1F45B}", savings: "\u{1F4B0}",
+    card: "\u{1F4B3}", investment: "\u{1F4C8}", cash: "\u{1F4B5}", home: "\u{1F3E0}",
+  },
+  portfolioIcon = (portfolio) => portfolioIcons[portfolio.iconKey] || (portfolio.type === "creditCard" ? portfolioIcons.card : portfolio.name?.toLowerCase().includes("saving") ? portfolioIcons.savings : portfolioIcons.bank),
   mo = () => new Date().toISOString().slice(0, 7),
   localDateTime = (value) => {
     const date = new Date(value);
@@ -77,6 +82,7 @@ const id = () => crypto.randomUUID(),
         currency: "SAR",
         opening: 0,
         type: "bank",
+        iconKey: "bank",
         creditLimit: 0,
         caps: {},
         transactions: [],
@@ -87,6 +93,7 @@ const id = () => crypto.randomUUID(),
         currency: "SAR",
         opening: 0,
         type: "bank",
+        iconKey: "savings",
         creditLimit: 0,
         caps: {},
         transactions: [],
@@ -138,6 +145,7 @@ const fromFlutterState = (state) => ({
     currency: String(portfolio.currency || "sar").toUpperCase(),
     opening: portfolio.opening || 0,
     type: portfolio.type || "bank",
+    iconKey: portfolio.iconKey,
     creditLimit: portfolio.creditLimit || 0,
     caps: portfolio.categoryCaps || {},
     transactions: portfolio.transactions || [],
@@ -165,7 +173,7 @@ const toFlutterState = (data, previous) => ({
   categories: data.categories,
   portfolios: data.portfolios.map((portfolio) => {
     const existing = (previous.portfolios || []).find((item) => item.id === portfolio.id) || {};
-    return { ...existing, id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), type: portfolio.type || "bank", creditLimit: portfolio.creditLimit || 0, categoryCaps: portfolio.caps || {}, transactions: portfolio.transactions || [] };
+    return { ...existing, id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), type: portfolio.type || "bank", iconKey: portfolio.iconKey, creditLimit: portfolio.creditLimit || 0, categoryCaps: portfolio.caps || {}, transactions: portfolio.transactions || [] };
   }),
   monthlyPlans: data.plans.map((plan) => {
     const existing = (previous.monthlyPlans || []).find((item) => item.id === plan.id) || {};
@@ -178,7 +186,7 @@ const fromSharedRecords = (records) => {
   const category = active.find((record) => record.record_type === "category")?.payload || {};
   const portfolios = active
     .filter((record) => record.record_type === "portfolio")
-    .map((record) => ({ ...record.payload, type: record.payload.type || "bank", creditLimit: record.payload.creditLimit || 0, caps: record.payload.categoryCaps || record.payload.caps || {}, transactions: [] }));
+    .map((record) => ({ ...record.payload, type: record.payload.type || "bank", iconKey: record.payload.iconKey, creditLimit: record.payload.creditLimit || 0, caps: record.payload.categoryCaps || record.payload.caps || {}, transactions: [] }));
   if (!portfolios.length) return null;
   const globalCaps = Object.fromEntries(Object.entries(profile.globalCategoryCaps || {}).map(([currency, caps]) => [currency.toLowerCase(), structuredClone(caps)]));
   if (profile.capsSharedVersion !== 2) {
@@ -231,7 +239,7 @@ const toSharedRecords = (userId, data) => [
   { user_id: userId, record_type: "profile", record_id: "settings", payload: { name: data.profile, selectedId: data.selected, globalCategoryCaps: data.globalCaps || {}, capsSharedVersion: 2, readActivityIds: data.readActivityIds || [] } },
   { user_id: userId, record_type: "category", record_id: "all", payload: { categories: data.categories, icons: {} } },
   ...data.portfolios.flatMap((portfolio) => [
-    { user_id: userId, record_type: "portfolio", record_id: portfolio.id, payload: { id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), type: portfolio.type || "bank", creditLimit: portfolio.creditLimit || 0, categoryCaps: portfolio.caps || {} } },
+    { user_id: userId, record_type: "portfolio", record_id: portfolio.id, payload: { id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), type: portfolio.type || "bank", iconKey: portfolio.iconKey, creditLimit: portfolio.creditLimit || 0, categoryCaps: portfolio.caps || {} } },
     ...portfolio.transactions.map((transaction) => ({ user_id: userId, record_type: "transaction", record_id: transaction.id, payload: { ...transaction, portfolioId: portfolio.id }, deleted_at: null })),
   ]),
   ...dedupePlans(data.plans).map((plan) => ({ user_id: userId, record_type: "plan", record_id: plan.id, payload: { ...plan, savingsTransfer: Boolean(plan.savings), lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null } })),
@@ -684,7 +692,7 @@ function App() {
             onChange={(e) => up((x) => (x.selected = e.target.value))}
           >
             {d.portfolios.map((x) => (
-              <option value={x.id}>{x.name}</option>
+              <option value={x.id}>{portfolioIcon(x)} {x.name}</option>
             ))}
           </select><div className="notification-wrap"><button className="notification-bell" aria-label={unreadNotifications ? `${unreadNotifications} unread notifications` : "Notifications"} title={unreadNotifications ? `${unreadNotifications} unread notifications` : "Notifications"} onClick={() => { const opening = !notificationsOpen; setNotificationsOpen(opening); if (opening) markActivityRead(); }}>{unreadNotifications > 0 && <span>{unreadNotifications > 9 ? "9+" : unreadNotifications}</span>}</button>{notificationsOpen && <section className="notification-panel"><div className="notification-panel-head"><b>Notifications</b><button type="button" onClick={markActivityRead}>Mark all read</button></div>{activityNotifications.length ? activityNotifications.slice(0, 6).map((notice) => <button type="button" className={`notification-item ${notice.warning ? "warning" : ""}`} key={notice.id} onClick={() => { setNotificationsOpen(false); if (notice.transaction) setTab("History"); }}><span>{notice.warning ? "!" : notice.transaction?.inflow ? "+" : "-"}</span><div><b>{notice.title}</b><small>{notice.message}</small></div></button>) : <p className="notification-empty">No recent activity.</p>}</section>}</div></div>
         </header>
@@ -694,7 +702,7 @@ function App() {
             {dashboard.map((summary) => {
               const format = (amount) => fmt(summary.portfolio, amount);
               return <article className="dashboard-currency" key={summary.portfolio.id}>
-                <div className="dashboard-currency-heading"><div><small>{summary.portfolio.currency.toUpperCase()}</small><h3>{summary.portfolio.name.toUpperCase()}</h3></div><span>{summary.portfolio.type === "creditCard" ? "CREDIT CARD" : "BANK / CASH"}</span></div>
+                <div className="dashboard-currency-heading"><div><small>{summary.portfolio.currency.toUpperCase()}</small><h3><i className="portfolio-icon">{portfolioIcon(summary.portfolio)}</i>{summary.portfolio.name.toUpperCase()}</h3></div><span>{summary.portfolio.type === "creditCard" ? "CREDIT CARD" : "BANK / CASH"}</span></div>
                 <div className="dashboard-metrics">
                   <div><small>MONTHLY INFLOW</small><b className="green">{format(summary.inflow)}</b></div>
                   <div><small>MONTHLY OUTFLOW</small><b className="redtext">{format(summary.outflow)}</b></div>
@@ -711,7 +719,7 @@ function App() {
             <section className="hero">
               <div>
                 <small>{p.type === "creditCard" ? "CREDIT CARD" : "ACTIVE PORTFOLIO"}</small>
-                <h2>{p.name}</h2>
+                <h2><i className="portfolio-icon">{portfolioIcon(p)}</i>{p.name}</h2>
                 <strong>{fmt(p, p.type === "creditCard" ? outstanding(p) : bal(p))}</strong>
                 {p.type === "creditCard" && <small>Outstanding of {fmt(p, Number(p.creditLimit) || 0)} limit. Available: {fmt(p, availableCredit(p))}</small>}
               </div>
@@ -855,7 +863,7 @@ function App() {
                     <option>SAR</option>
                     <option>USD</option>
                     <option>JOD</option>
-                  </select><select value={x.type || "bank"} onChange={(e) => up((z) => (z.portfolios.find((q) => q.id === x.id).type = e.target.value))}><option value="bank">Bank / cash</option><option value="creditCard">Credit card</option></select>{x.type === "creditCard" && <input type="number" min="0" step=".01" aria-label="Credit limit" value={x.creditLimit || ""} placeholder="Credit limit" onChange={(e) => up((z) => (z.portfolios.find((q) => q.id === x.id).creditLimit = Number(e.target.value) || 0))} />}<button type="button" className="reset-portfolio" onClick={() => resetPortfolio(x)}>Reset data</button><button type="button" className="delete-portfolio" onClick={() => deletePortfolio(x)}>Delete</button></span>
+                  </select><select value={x.iconKey || (x.type === "creditCard" ? "card" : "bank")} aria-label="Portfolio icon" onChange={(e) => up((z) => (z.portfolios.find((q) => q.id === x.id).iconKey = e.target.value))}>{Object.entries(portfolioIcons).map(([key, glyph]) => <option value={key}>{glyph} {key.toUpperCase()}</option>)}</select><select value={x.type || "bank"} onChange={(e) => up((z) => (z.portfolios.find((q) => q.id === x.id).type = e.target.value))}><option value="bank">Bank / cash</option><option value="creditCard">Credit card</option></select>{x.type === "creditCard" && <input type="number" min="0" step=".01" aria-label="Credit limit" value={x.creditLimit || ""} placeholder="Credit limit" onChange={(e) => up((z) => (z.portfolios.find((q) => q.id === x.id).creditLimit = Number(e.target.value) || 0))} />}<button type="button" className="reset-portfolio" onClick={() => resetPortfolio(x)}>Reset data</button><button type="button" className="delete-portfolio" onClick={() => deletePortfolio(x)}>Delete</button></span>
               </label>
             ))}
             <button
@@ -865,6 +873,7 @@ function App() {
                   const type = confirm("Create this as a credit card? Select Cancel for a bank / cash portfolio.") ? "creditCard" : "bank";
                   const creditLimit = type === "creditCard" ? Number(prompt("Credit limit", "0")) || 0 : 0;
                   if (type === "creditCard" && creditLimit <= 0) return;
+                  const iconKey = prompt("Portfolio icon: bank, wallet, savings, card, investment, cash, or home", type === "creditCard" ? "card" : "bank") || (type === "creditCard" ? "card" : "bank");
                   up((x) =>
                     x.portfolios.push({
                       id: id(),
@@ -872,6 +881,7 @@ function App() {
                       currency: "SAR",
                       opening: 0,
                       type,
+                      iconKey: portfolioIcons[iconKey] ? iconKey : "bank",
                       creditLimit,
                       caps: {},
                       transactions: [],
