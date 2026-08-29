@@ -89,6 +89,7 @@ const id = () => crypto.randomUUID(),
     profile: "",
     readActivityIds: [],
     globalCaps: {},
+    loans: [],
     categories: cats,
     portfolios: [
       {
@@ -153,6 +154,7 @@ const fromFlutterState = (state) => ({
   profile: state.name || "",
   readActivityIds: state.readActivityIds || [],
   globalCaps: Object.fromEntries(Object.entries(state.globalCategoryCaps || {}).map(([currency, caps]) => [currency.toLowerCase(), caps])),
+  loans: state.loans || [],
   categories: state.categories || cats,
   portfolios: (state.portfolios || []).map((portfolio) => ({
     id: portfolio.id,
@@ -187,6 +189,7 @@ const toFlutterState = (data, previous) => ({
   readActivityIds: data.readActivityIds || [],
   selectedId: data.selected,
   globalCategoryCaps: data.globalCaps || {},
+  loans: data.loans || previous.loans || [],
   categories: data.categories,
   portfolios: data.portfolios.map((portfolio) => {
     const existing = (previous.portfolios || []).find((item) => item.id === portfolio.id) || {};
@@ -244,6 +247,7 @@ const fromSharedRecords = (records) => {
       skipped: plan.skipped || plan.lastSkippedMonth || "",
     };
   });
+  const loans = active.filter((record) => record.record_type === "loan").map((record) => record.payload);
   return {
     selected,
     profile: profile.name || "",
@@ -252,6 +256,7 @@ const fromSharedRecords = (records) => {
     categories: category.categories || cats,
     portfolios,
     plans: dedupePlans(plans),
+    loans,
   };
 };
 const toSharedRecords = (userId, data) => [
@@ -262,6 +267,7 @@ const toSharedRecords = (userId, data) => [
     ...portfolio.transactions.map((transaction) => ({ user_id: userId, record_type: "transaction", record_id: transaction.id, payload: { ...transaction, portfolioId: portfolio.id }, deleted_at: null })),
   ]),
   ...dedupePlans(data.plans).map((plan) => ({ user_id: userId, record_type: "plan", record_id: plan.id, payload: { ...plan, frequency: plan.frequency || "monthly", anchorMonth: plan.anchorMonth || 1, savingsTransfer: Boolean(plan.savings), lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null } })),
+  ...(data.loans || []).map((loan) => ({ user_id: userId, record_type: "loan", record_id: loan.id, payload: loan })),
 ];
 const syncSharedRecords = async (userId, data) => {
   const records = toSharedRecords(userId, data);
@@ -537,7 +543,7 @@ function App() {
   const createPlanTransaction = (plan) => up((next) => {
     const source = next.portfolios.find((portfolio) => portfolio.id === plan.portfolioId) || next.portfolios.find((portfolio) => portfolio.id === next.selected) || next.portfolios[0];
     if (!source) return;
-    source.transactions.unshift({ id: id(), description: plan.description, category: plan.category, amount: plan.amount, inflow: false, createdAt: new Date().toISOString() });
+    source.transactions.unshift({ id: id(), description: plan.description, category: plan.category, amount: plan.amount, inflow: false, createdAt: new Date().toISOString(), loanId: plan.loanId });
     const destination = next.portfolios.find((portfolio) => portfolio.id === plan.destinationId);
     if (plan.savings && destination && destination.id !== source.id) destination.transactions.unshift({ id: id(), description: plan.description, category: plan.category, amount: plan.amount, inflow: true, createdAt: new Date().toISOString() });
     next.plans.find((item) => item.id === plan.id).last = planPeriod(plan);
@@ -713,7 +719,7 @@ function App() {
         <h1>
           MY <i>EXPENSIA</i>
         </h1>
-        {["Dashboard", "Home", "Report", "Trends", "Bill calendar", "Plans", "History", "Settings"].map((x) => (
+        {["Dashboard", "Home", "Report", "Trends", "Bill calendar", "Plans", "Loans", "History", "Settings"].map((x) => (
           <button className={tab === x ? "on" : ""} onClick={() => setTab(x)}>
             {x}
           </button>
@@ -876,6 +882,7 @@ function App() {
             </article>;
           })}</div>
         </>}
+        {tab === "Loans" && <section className="plans-list"><div className="recent-heading"><div><small>DEBT TRACKING</small><h3>Loans</h3></div><button onClick={() => { const name = prompt("Loan name"); const principal = Number(prompt("Original loan amount", "0")); const termMonths = Number(prompt("Loan duration in months", "12")); if (name && principal > 0 && termMonths > 0) up((x) => x.loans.push({ id: id(), name, lender: prompt("Lender", "") || "", principal, termMonths, portfolioId: x.selected })); }}>Add loan</button></div>{d.loans.length ? d.loans.map((loan) => { const portfolio = d.portfolios.find((item) => item.id === loan.portfolioId) || p; const paid = d.portfolios.flatMap((item) => item.transactions).filter((tx) => !tx.inflow && tx.loanId === loan.id).reduce((sum, tx) => sum + tx.amount, 0); const remaining = Math.max(0, loan.principal - paid); return <article className="plan" key={loan.id}><span>🏦</span><div><b>{loan.name}</b><small>{loan.lender || "Loan"} · {loan.termMonths} months · Paid {fmt(portfolio, paid)} · Remaining {fmt(portfolio, remaining)}</small></div><b>{fmt(portfolio, remaining)}</b><button className="delete-plan" onClick={() => up((x) => { x.loans = x.loans.filter((item) => item.id !== loan.id); x.plans.forEach((plan) => { if (plan.loanId === loan.id) delete plan.loanId; }); })}>Delete</button></article>; }) : <p>No loans yet. Add one, then link it to a recurring plan in Settings.</p>}</section>}
         {tab === "History" && (
           <>
             <div className="recent-heading"><p className="history-context">Transactions in {historyScope === "global" ? "all portfolios" : p.name}</p><div className="scope-switch"><button className={historyScope === "portfolio" ? "on" : ""} onClick={() => setHistoryScope("portfolio")}>This portfolio</button><button className={historyScope === "global" ? "on" : ""} onClick={() => setHistoryScope("global")}>All portfolios</button></div></div>
@@ -1009,6 +1016,7 @@ function App() {
                     >
                       {Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={index + 1}>{new Date(2026, index, 1).toLocaleString("en", { month: "long" })}</option>)}
                     </select>}
+                    {d.loans.length > 0 && <select value={plan.loanId || ""} onChange={(e) => up((x) => { const target = x.plans.find((q) => q.id === plan.id); e.target.value ? target.loanId = e.target.value : delete target.loanId; })}><option value="">No linked loan</option>{d.loans.map((loan) => <option key={loan.id} value={loan.id}>{loan.name}</option>)}</select>}
                     <select
                       value={plan.portfolioId || "main"}
                       onChange={(e) =>
