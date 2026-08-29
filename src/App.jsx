@@ -67,6 +67,7 @@ const id = () => crypto.randomUUID(),
   seed = {
     selected: "main",
     profile: "",
+    readActivityIds: [],
     globalCaps: {},
     categories: cats,
     portfolios: [
@@ -128,6 +129,7 @@ const readData = () => {
 const fromFlutterState = (state) => ({
   selected: state.selectedId || "default",
   profile: state.name || "",
+  readActivityIds: state.readActivityIds || [],
   globalCaps: Object.fromEntries(Object.entries(state.globalCategoryCaps || {}).map(([currency, caps]) => [currency.toLowerCase(), caps])),
   categories: state.categories || cats,
   portfolios: (state.portfolios || []).map((portfolio) => ({
@@ -157,6 +159,7 @@ const fromFlutterState = (state) => ({
 const toFlutterState = (data, previous) => ({
   ...previous,
   name: data.profile || previous.name || "",
+  readActivityIds: data.readActivityIds || [],
   selectedId: data.selected,
   globalCategoryCaps: data.globalCaps || {},
   categories: data.categories,
@@ -217,6 +220,7 @@ const fromSharedRecords = (records) => {
   return {
     selected,
     profile: profile.name || "",
+    readActivityIds: profile.readActivityIds || [],
     globalCaps,
     categories: category.categories || cats,
     portfolios,
@@ -224,7 +228,7 @@ const fromSharedRecords = (records) => {
   };
 };
 const toSharedRecords = (userId, data) => [
-  { user_id: userId, record_type: "profile", record_id: "settings", payload: { name: data.profile, selectedId: data.selected, globalCategoryCaps: data.globalCaps || {}, capsSharedVersion: 2 } },
+  { user_id: userId, record_type: "profile", record_id: "settings", payload: { name: data.profile, selectedId: data.selected, globalCategoryCaps: data.globalCaps || {}, capsSharedVersion: 2, readActivityIds: data.readActivityIds || [] } },
   { user_id: userId, record_type: "category", record_id: "all", payload: { categories: data.categories, icons: {} } },
   ...data.portfolios.flatMap((portfolio) => [
     { user_id: userId, record_type: "portfolio", record_id: portfolio.id, payload: { id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), type: portfolio.type || "bank", creditLimit: portfolio.creditLimit || 0, categoryCaps: portfolio.caps || {} } },
@@ -258,6 +262,7 @@ function App() {
   const [syncError, setSyncError] = useState("");
   const [apiMessage, setApiMessage] = useState("");
   const [transferMessage, setTransferMessage] = useState("");
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const mobileStateRef = useRef(null);
   const csvInputRef = useRef(null);
   const [cloudReady, setCloudReady] = useState(!cloudEnabled);
@@ -452,9 +457,30 @@ function App() {
       }).filter((alert) => alert.ratio >= .9).sort((a, b) => b.ratio - a.ratio);
       return { currency, portfolios, inflow, outflow, netWorth, alerts };
     }),
+    activityNotifications = [
+      ...d.portfolios.flatMap((portfolio) => portfolio.transactions.map((transaction) => ({
+        id: `transaction:${transaction.id}`,
+        title: transaction.inflow ? "Inflow added" : "Outflow added",
+        message: `${transaction.description} - ${fmt(portfolio, transaction.amount)}`,
+        createdAt: transaction.createdAt,
+        transaction,
+        warning: false,
+      }))),
+      ...dashboard.flatMap((summary) => summary.alerts.map((alert) => ({
+        id: `cap:${summary.currency.toLowerCase()}:${alert.category}:${mo()}`,
+        title: alert.ratio >= 1 ? "Monthly cap exceeded" : "Monthly cap warning",
+        message: `${alert.category}: ${(alert.ratio * 100).toFixed(0)}% of ${new Intl.NumberFormat("en", { style: "currency", currency: summary.currency }).format(alert.cap)}`,
+        createdAt: new Date().toISOString(),
+        warning: true,
+      }))),
+    ].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 12),
+    unreadNotifications = activityNotifications.filter((notice) => !(d.readActivityIds || []).includes(notice.id)).length,
     calendarStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1),
     calendarDays = new Date(calendarStart.getFullYear(), calendarStart.getMonth() + 1, 0).getDate(),
     calendarCells = Array.from({ length: calendarStart.getDay() + calendarDays }, (_, index) => index < calendarStart.getDay() ? null : index - calendarStart.getDay() + 1);
+  const markActivityRead = () => up((next) => {
+    next.readActivityIds = [...new Set([...(next.readActivityIds || []), ...activityNotifications.map((notice) => notice.id)])].slice(-200);
+  });
   const createPlanTransaction = (plan) => up((next) => {
     const source = next.portfolios.find((portfolio) => portfolio.id === plan.portfolioId) || next.portfolios.find((portfolio) => portfolio.id === next.selected) || next.portfolios[0];
     if (!source) return;
@@ -662,7 +688,7 @@ function App() {
             {d.portfolios.map((x) => (
               <option value={x.id}>{x.name}</option>
             ))}
-          </select></div>
+          </select><div className="notification-wrap"><button className="notification-bell" title={unreadNotifications ? `${unreadNotifications} unread notifications` : "Notifications"} onClick={() => { const opening = !notificationsOpen; setNotificationsOpen(opening); if (opening) markActivityRead(); }}>Alerts{unreadNotifications > 0 && <span>{unreadNotifications > 9 ? "9+" : unreadNotifications}</span>}</button>{notificationsOpen && <section className="notification-panel"><div className="notification-panel-head"><b>Notifications</b><button type="button" onClick={markActivityRead}>Mark all read</button></div>{activityNotifications.length ? activityNotifications.slice(0, 6).map((notice) => <button type="button" className={`notification-item ${notice.warning ? "warning" : ""}`} key={notice.id} onClick={() => { setNotificationsOpen(false); if (notice.transaction) setTab("History"); }}><span>{notice.warning ? "!" : notice.transaction?.inflow ? "+" : "-"}</span><div><b>{notice.title}</b><small>{notice.message}</small></div></button>) : <p className="notification-empty">No recent activity.</p>}</section>}</div></div>
         </header>
         {tab === "Dashboard" && (
           <section className="dashboard">
