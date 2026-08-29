@@ -748,8 +748,9 @@ function App() {
               <div>
                 <small>{p.type === "creditCard" ? "CREDIT CARD" : "ACTIVE PORTFOLIO"}</small>
                 <h2><i className="portfolio-icon">{portfolioIcon(p)}</i>{p.name}</h2>
-                <strong>{fmt(p, p.type === "creditCard" ? outstanding(p) : bal(p))}</strong>
-                {p.type === "creditCard" && <small>Outstanding of {fmt(p, Number(p.creditLimit) || 0)} limit. Available: {fmt(p, availableCredit(p))}</small>}
+                {p.type === "creditCard" && <small>{bal(p) > 0 ? "CARD CREDIT" : "OUTSTANDING"}</small>}
+                <strong className={p.type === "creditCard" && bal(p) > 0 ? "card-credit" : ""}>{fmt(p, p.type === "creditCard" && bal(p) > 0 ? -bal(p) : p.type === "creditCard" ? outstanding(p) : bal(p))}</strong>
+                {p.type === "creditCard" && <small>Credit limit: {fmt(p, Number(p.creditLimit) || 0)}. Available: {fmt(p, availableCredit(p))}</small>}
               </div>
               <div>
                 <button onClick={() => setForm("in")}>+ {p.type === "creditCard" ? "Payment" : "Inflow"}</button>

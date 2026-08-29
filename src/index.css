@@ -9,6 +9,7 @@
 .dashboard-currency-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .dashboard-currency-heading h3, .budget-alerts h4 { margin: 3px 0; }
 .portfolio-icon{font-style:normal;margin-right:8px;font-size:.82em}
+.card-credit{color:#6ee1c7}
 .dashboard-currency-heading > span { background: #e8f1ed; border-radius: 99px; color: #24584d; font-size: 11px; padding: 6px 9px; }
 .dashboard-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0; }
 .dashboard-metrics div { background: #f3f7f4; border-radius: 9px; padding: 13px; }
