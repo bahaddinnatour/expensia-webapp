@@ -694,7 +694,7 @@ function App() {
             {dashboard.map((summary) => {
               const format = (amount) => fmt(summary.portfolio, amount);
               return <article className="dashboard-currency" key={summary.portfolio.id}>
-                <div className="dashboard-currency-heading"><div><small>{summary.portfolio.currency}</small><h3>{summary.portfolio.name.toUpperCase()}</h3></div><span>{summary.portfolio.type === "creditCard" ? "CREDIT CARD" : "BANK / CASH"}</span></div>
+                <div className="dashboard-currency-heading"><div><small>{summary.portfolio.currency.toUpperCase()}</small><h3>{summary.portfolio.name.toUpperCase()}</h3></div><span>{summary.portfolio.type === "creditCard" ? "CREDIT CARD" : "BANK / CASH"}</span></div>
                 <div className="dashboard-metrics">
                   <div><small>MONTHLY INFLOW</small><b className="green">{format(summary.inflow)}</b></div>
                   <div><small>MONTHLY OUTFLOW</small><b className="redtext">{format(summary.outflow)}</b></div>
