@@ -45,6 +45,14 @@ const id = () => crypto.randomUUID(),
   },
   portfolioIcon = (portfolio) => portfolioIcons[portfolio.iconKey] || (portfolio.type === "creditCard" ? portfolioIcons.card : portfolio.name?.toLowerCase().includes("saving") ? portfolioIcons.savings : portfolioIcons.bank),
   mo = () => new Date().toISOString().slice(0, 7),
+  planFrequencyLabel = (frequency) => ({ monthly: "Monthly", semiAnnual: "Every 6 months", annual: "Annual" }[frequency || "monthly"]),
+  planOccurs = (plan, date = new Date()) => {
+    const frequency = plan.frequency || "monthly";
+    const anchor = Number(plan.anchorMonth || 1);
+    return frequency === "monthly" || (frequency === "annual" ? date.getMonth() + 1 === anchor : (date.getMonth() + 1 - anchor) % 6 === 0);
+  },
+  planPeriod = (plan, date = new Date()) => (plan.frequency || "monthly") === "annual" ? String(date.getFullYear()) : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
+  planCompleted = (plan, date = new Date()) => !planOccurs(plan, date) || plan.last === planPeriod(plan, date) || plan.skipped === planPeriod(plan, date),
   localDateTime = (value) => {
     const date = new Date(value);
     return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
@@ -59,6 +67,8 @@ const id = () => crypto.randomUUID(),
     plan.dueDay || 1,
     Boolean(plan.savings),
     plan.destinationId || "",
+    plan.frequency || "monthly",
+    plan.anchorMonth || 1,
   ].join("|"),
   dedupePlans = (plans) => {
     const seen = new Set();
@@ -160,6 +170,8 @@ const fromFlutterState = (state) => ({
     portfolioId: plan.portfolioId,
     dueDay: plan.dueDay || 1,
     recurring: plan.recurring ?? true,
+    frequency: plan.frequency || "monthly",
+    anchorMonth: plan.anchorMonth || 1,
     last: plan.lastCreatedMonth || "",
     skipped: plan.lastSkippedMonth || "",
   }))),
@@ -177,7 +189,7 @@ const toFlutterState = (data, previous) => ({
   }),
   monthlyPlans: data.plans.map((plan) => {
     const existing = (previous.monthlyPlans || []).find((item) => item.id === plan.id) || {};
-    return { ...existing, id: plan.id, description: plan.description, category: plan.category, amount: plan.amount, savingsTransfer: Boolean(plan.savings), destinationPortfolioId: plan.destinationId || existing.destinationPortfolioId, portfolioId: plan.portfolioId || existing.portfolioId || data.selected, dueDay: plan.dueDay || existing.dueDay || 1, recurring: plan.recurring ?? existing.recurring ?? true, lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null };
+    return { ...existing, id: plan.id, description: plan.description, category: plan.category, amount: plan.amount, savingsTransfer: Boolean(plan.savings), destinationPortfolioId: plan.destinationId || existing.destinationPortfolioId, portfolioId: plan.portfolioId || existing.portfolioId || data.selected, dueDay: plan.dueDay || existing.dueDay || 1, recurring: plan.recurring ?? existing.recurring ?? true, frequency: plan.frequency || existing.frequency || "monthly", anchorMonth: plan.anchorMonth || existing.anchorMonth || 1, lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null };
   }),
 });
 const fromSharedRecords = (records) => {
@@ -221,6 +233,8 @@ const fromSharedRecords = (records) => {
       portfolioId: byId.has(plan.portfolioId) ? plan.portfolioId : selected,
       dueDay: plan.dueDay || 1,
       recurring: plan.recurring ?? true,
+      frequency: plan.frequency || "monthly",
+      anchorMonth: plan.anchorMonth || 1,
       last: plan.last || plan.lastCreatedMonth || "",
       skipped: plan.skipped || plan.lastSkippedMonth || "",
     };
@@ -242,7 +256,7 @@ const toSharedRecords = (userId, data) => [
     { user_id: userId, record_type: "portfolio", record_id: portfolio.id, payload: { id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), type: portfolio.type || "bank", iconKey: portfolio.iconKey, creditLimit: portfolio.creditLimit || 0, categoryCaps: portfolio.caps || {} } },
     ...portfolio.transactions.map((transaction) => ({ user_id: userId, record_type: "transaction", record_id: transaction.id, payload: { ...transaction, portfolioId: portfolio.id }, deleted_at: null })),
   ]),
-  ...dedupePlans(data.plans).map((plan) => ({ user_id: userId, record_type: "plan", record_id: plan.id, payload: { ...plan, savingsTransfer: Boolean(plan.savings), lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null } })),
+  ...dedupePlans(data.plans).map((plan) => ({ user_id: userId, record_type: "plan", record_id: plan.id, payload: { ...plan, frequency: plan.frequency || "monthly", anchorMonth: plan.anchorMonth || 1, savingsTransfer: Boolean(plan.savings), lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null } })),
 ];
 const syncSharedRecords = async (userId, data) => {
   const records = toSharedRecords(userId, data);
@@ -521,11 +535,11 @@ function App() {
     source.transactions.unshift({ id: id(), description: plan.description, category: plan.category, amount: plan.amount, inflow: false, createdAt: new Date().toISOString() });
     const destination = next.portfolios.find((portfolio) => portfolio.id === plan.destinationId);
     if (plan.savings && destination && destination.id !== source.id) destination.transactions.unshift({ id: id(), description: plan.description, category: plan.category, amount: plan.amount, inflow: true, createdAt: new Date().toISOString() });
-    next.plans.find((item) => item.id === plan.id).last = mo();
+    next.plans.find((item) => item.id === plan.id).last = planPeriod(plan);
   });
   const skipPlanTransaction = (plan) => {
     if (!confirm(`Skip ${plan.description} for this month? No transaction will be created.`)) return;
-    up((next) => { next.plans.find((item) => item.id === plan.id).skipped = mo(); });
+    up((next) => { next.plans.find((item) => item.id === plan.id).skipped = planPeriod(plan); });
   };
   const trendMonths = Array.from({ length: 6 }, (_, index) => {
     const date = new Date(); date.setMonth(date.getMonth() - (5 - index));
@@ -540,7 +554,7 @@ function App() {
     if (!confirm("Delete this transaction and reverse its balance effect?")) return;
     const plan = d.plans.find(
       (item) =>
-        item.last === mo() &&
+        item.last === planPeriod(item) &&
         item.description === transaction.description &&
         item.amount === transaction.amount,
     );
@@ -825,11 +839,11 @@ function App() {
         {tab === "Trends" && <section className="trends"><div className="recent-heading"><div><small>ANALYTICS</small><h3>Spending trends</h3></div><select value={trendMonth} onChange={(event) => setTrendMonth(event.target.value)}>{trendMonths.map((month) => <option key={month}>{month}</option>)}</select></div><div className="trend-top"><article className="trend-donut-card"><h4>Inflow vs outflow</h4><div className="trend-donut" style={{ background: `conic-gradient(#62c9ba 0 ${(trendInflow / trendTotal) * 100}%, #ffd06b ${(trendInflow / trendTotal) * 100}% 100%)` }}><span><b>{trendOutflow ? `${(trendOutflow / trendTotal * 100).toFixed(0)}%` : "0%"}</b><small>outflow</small></span></div><div className="trend-legend"><span><i className="legend-in" />Inflow</span><span><i className="legend-out" />Outflow</span></div></article><article className="trend-bar-card"><h4>Monthly cashflow</h4><div className="trend-chart">{trendMonths.map((month) => { const transactions = d.portfolios.flatMap((portfolio) => portfolio.transactions).filter((transaction) => transaction.createdAt.slice(0, 7) === month); const inflow = transactions.filter((transaction) => transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0); const outflow = transactions.filter((transaction) => !transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0); const max = Math.max(...trendMonths.map((key) => d.portfolios.flatMap((portfolio) => portfolio.transactions).filter((transaction) => transaction.createdAt.slice(0, 7) === key).reduce((sum, transaction) => sum + transaction.amount, 0)), 1); return <div className="trend-month" key={month}><div><i className="trend-in" style={{ height: `${inflow / max * 100}%` }} /><i className="trend-out" style={{ height: `${outflow / max * 100}%` }} /></div><small>{month.slice(5)}</small></div>; })}</div></article></div><div className="trend-kpis"><article><small>MONTHLY INFLOW</small><b className="green">{trendInflow.toFixed(2)}</b></article><article><small>MONTHLY OUTFLOW</small><b className="redtext">{trendOutflow.toFixed(2)}</b></article><article><small>NET CASHFLOW</small><b className={trendInflow >= trendOutflow ? "green" : "redtext"}>{(trendInflow - trendOutflow).toFixed(2)}</b></article></div><h3>Category outflow for {trendMonth}</h3>{trendCategories.length ? trendCategories.map(([category, amount]) => <article className="cap" key={category}><span>{icon[category] || "*"} {category}</span><b>{amount.toFixed(2)}</b><small>{trendTransactions.filter((transaction) => !transaction.inflow && transaction.category === category).map((transaction) => transaction.portfolio.currency).filter((value, index, list) => list.indexOf(value) === index).join(", ")}</small></article>) : <p>No outflows recorded for this month.</p>}</section>}
         {tab === "Bill calendar" &&
           <section className="plan-calendar">
-            <div className="plan-calendar-heading"><div><small>RECURRING BILLS</small><h3>{calendarStart.toLocaleString("en", { month: "long", year: "numeric" })}</h3></div><span>{d.plans.filter((plan) => plan.last !== mo() && plan.skipped !== mo()).length} pending</span></div>
+            <div className="plan-calendar-heading"><div><small>RECURRING BILLS</small><h3>{calendarStart.toLocaleString("en", { month: "long", year: "numeric" })}</h3></div><span>{d.plans.filter((plan) => !planCompleted(plan)).length} pending</span></div>
             <div className="calendar-weekdays">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <small key={day}>{day}</small>)}</div>
             <div className="calendar-grid">{calendarCells.map((day, index) => {
-              const plans = day ? d.plans.filter((plan) => Number(plan.dueDay || 1) === day) : [];
-              return <div className={`calendar-day ${day === new Date().getDate() ? "today" : ""}`} key={`${day || "blank"}-${index}`}>{day && <><b>{day}</b>{plans.map((plan) => { const done = plan.last === mo() || plan.skipped === mo(); return <button className={`calendar-plan ${done ? "done" : ""}`} key={plan.id} title={`${plan.description}: ${done ? plan.skipped === mo() ? "Skipped" : "Created" : "Pending"}`} onClick={() => !done && createPlanTransaction(plan)}>{icon[plan.category] || "*"} {plan.description}</button>; })}</>}</div>;
+              const plans = day ? d.plans.filter((plan) => Number(plan.dueDay || 1) === day && planOccurs(plan, calendarStart)) : [];
+              return <div className={`calendar-day ${day === new Date().getDate() ? "today" : ""}`} key={`${day || "blank"}-${index}`}>{day && <><b>{day}</b>{plans.map((plan) => { const done = planCompleted(plan); return <button className={`calendar-plan ${done ? "done" : ""}`} key={plan.id} title={`${plan.description}: ${done ? plan.skipped === planPeriod(plan) ? "Skipped" : "Created" : "Pending"}`} onClick={() => !done && createPlanTransaction(plan)}>{icon[plan.category] || "*"} {plan.description}</button>; })}</>}</div>;
             })}</div>
             <small className="calendar-help">Select a pending bill to create it now. Due-date reminders are sent on Android for recurring plans.</small>
           </section>
@@ -837,14 +851,14 @@ function App() {
         {tab === "Plans" && <>
           <div className="plans-list">
           {d.plans.map((x) => {
-            const skipped = x.skipped === mo();
-            const completed = x.last === mo() || skipped;
+            const skipped = x.skipped === planPeriod(x);
+            const completed = planCompleted(x);
             return <article className="plan" key={x.id}>
               <span>{x.savings ? "◈" : icon[x.category] || "✨"}</span>
               <div>
                 <b>{x.description}</b>
                 <small>
-                  {x.savings ? "Savings transfer" : "Regular outflow"} · due day
+                  {x.savings ? "Savings transfer" : "Regular outflow"} · {planFrequencyLabel(x.frequency)} · due day
                   {x.dueDay || 1}
                 </small>
               </div>
@@ -853,7 +867,7 @@ function App() {
                 Create now
               </button>}
               {!completed && <button className="skip-plan" onClick={() => skipPlanTransaction(x)}>Skip this month</button>}
-              {completed && <span className="plan-status">{skipped ? "Skipped this month" : "Created this month"}</span>}
+              {completed && <span className="plan-status">{!planOccurs(x) ? "Not due this month" : skipped ? "Skipped this period" : "Created this period"}</span>}
             </article>;
           })}</div>
         </>}
@@ -932,7 +946,7 @@ function App() {
               className="caps-toggle"
               onClick={() => setPlansOpen(!plansOpen)}
             >
-              Monthly plans <span>{plansOpen ? "-" : "+"}</span>
+              Recurring plans <span>{plansOpen ? "-" : "+"}</span>
             </button>
             {plansOpen && (
               <div className="plans-settings">
@@ -976,6 +990,20 @@ function App() {
                         )
                       }
                     />
+                    <select
+                      value={plan.frequency || "monthly"}
+                      onChange={(e) => up((x) => (x.plans.find((q) => q.id === plan.id).frequency = e.target.value))}
+                    >
+                      <option value="monthly">Monthly</option>
+                      <option value="semiAnnual">Every 6 months</option>
+                      <option value="annual">Annual</option>
+                    </select>
+                    {(plan.frequency === "semiAnnual" || plan.frequency === "annual") && <select
+                      value={plan.anchorMonth || 1}
+                      onChange={(e) => up((x) => (x.plans.find((q) => q.id === plan.id).anchorMonth = Number(e.target.value)))}
+                    >
+                      {Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={index + 1}>{new Date(2026, index, 1).toLocaleString("en", { month: "long" })}</option>)}
+                    </select>}
                     <select
                       value={plan.portfolioId || "main"}
                       onChange={(e) =>
@@ -1024,12 +1052,15 @@ function App() {
                         amount: 0,
                         savings: false,
                         portfolioId: x.selected,
+                        dueDay: 1,
+                        frequency: "monthly",
+                        anchorMonth: 1,
                         last: "",
                       }),
                     )
                   }
                 >
-                  Add monthly plan
+                  Add recurring plan
                 </button>
               </div>
             )}
