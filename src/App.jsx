@@ -719,7 +719,7 @@ function App() {
         <h1>
           MY <i>EXPENSIA</i>
         </h1>
-        {["Dashboard", "Home", "Report", "Trends", "Bill calendar", "Plans", "Loans", "History", "Settings"].map((x) => (
+        {["Dashboard", "Projection", "Home", "Report", "Trends", "Bill calendar", "Plans", "Loans", "History", "Settings"].map((x) => (
           <button className={tab === x ? "on" : ""} onClick={() => setTab(x)}>
             {x}
           </button>
@@ -767,6 +767,7 @@ function App() {
             })}
           </section>
         )}
+        {tab === "Projection" && <section className="dashboard"><p className="dashboard-intro">Projected cash left after this month's remaining plans and category caps. The larger requirement per category is used so plans and caps are not counted twice.</p>{d.portfolios.filter((portfolio) => portfolio.type !== "creditCard").map((portfolio) => { const month = mo(); const spent = portfolio.transactions.filter((tx) => !tx.inflow && tx.createdAt.slice(0, 7) === month).reduce((map, tx) => ((map[tx.category] = (map[tx.category] || 0) + tx.amount), map), {}); const caps = d.globalCaps[portfolio.currency.toLowerCase()] || portfolio.caps || {}; const pending = d.plans.filter((plan) => plan.portfolioId === portfolio.id && !planCompleted(plan) && planOccurs(plan)).reduce((map, plan) => ((map[plan.category] = (map[plan.category] || 0) + plan.amount), map), {}); const categories = new Set([...Object.keys(caps), ...Object.keys(pending)]); const remaining = [...categories].reduce((sum, category) => sum + Math.max(Number(caps[category] || 0), Number(pending[category] || 0)) - Math.min(Number(spent[category] || 0), Math.max(Number(caps[category] || 0), Number(pending[category] || 0))), 0); const balance = portfolio.opening + portfolio.transactions.reduce((sum, tx) => sum + (tx.inflow ? tx.amount : -tx.amount), 0); return <article className="dashboard-card" key={portfolio.id}><small>{portfolio.currency} · MONTH PROJECTION</small><h3>{portfolio.name}</h3><b>{fmt(portfolio, balance - remaining)}</b><p>Current {fmt(portfolio, balance)} · Remaining commitments {fmt(portfolio, remaining)}</p></article>; })}</section>}
         {tab === "Home" && (
           <>
             <section className="hero">
