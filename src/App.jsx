@@ -478,19 +478,27 @@ function App() {
       e.preventDefault();
       const values = Object.fromEntries(new FormData(e.currentTarget));
       const amount = Number(values.amount);
+      const quotedRate = Number(values.transferRate);
+      const actualReceived = Number(values.actualReceived);
+      const fee = Number(values.transferFee || 0);
       const source = d.portfolios.find((portfolio) => portfolio.id === values.source);
       const destination = d.portfolios.find((portfolio) => portfolio.id === values.destination);
-      if (!source || !destination || source.id === destination.id || source.currency !== destination.currency || !Number.isFinite(amount) || amount <= 0) {
-        alert("Choose two different portfolios with the same currency and enter a valid amount.");
+      const crossCurrency = source && destination && source.currency !== destination.currency;
+      if (!source || !destination || source.id === destination.id || !Number.isFinite(amount) || amount <= 0 || fee < 0 || (crossCurrency && (!Number.isFinite(quotedRate) || quotedRate <= 0 || !Number.isFinite(actualReceived) || actualReceived <= 0))) {
+        alert(crossCurrency ? "Enter the amount sent, quoted rate, and actual amount received." : "Choose two different portfolios and enter a valid amount.");
         return;
       }
       const transferId = `transfer_${id()}`;
       const createdAt = new Date().toISOString();
       const description = values.description.trim() || (destination.type === "creditCard" ? `Payment to ${destination.name}` : `Transfer to ${destination.name}`);
+      const expectedReceived = crossCurrency ? amount / quotedRate : null;
       up((next) => {
-        next.portfolios.find((portfolio) => portfolio.id === source.id).transactions.unshift({ id: id(), description, category: "Personal transfer", amount, inflow: false, createdAt, transferId });
-        next.portfolios.find((portfolio) => portfolio.id === destination.id).transactions.unshift({ id: id(), description: values.description.trim() || `Transfer from ${source.name}`, category: "Personal transfer", amount, inflow: true, createdAt, transferId });
+        const transferData = crossCurrency ? { transferRate: quotedRate, expectedReceived, actualReceived, transferFee: fee || null, destinationPortfolioId: destination.id } : { destinationPortfolioId: destination.id, transferFee: fee || null };
+        next.portfolios.find((portfolio) => portfolio.id === source.id).transactions.unshift({ id: id(), description, category: "Personal transfer", amount, inflow: false, createdAt, transferId, ...transferData });
+        next.portfolios.find((portfolio) => portfolio.id === destination.id).transactions.unshift({ id: id(), description: values.description.trim() || `Transfer from ${source.name}`, category: "Personal transfer", amount: crossCurrency ? actualReceived : amount, inflow: true, createdAt, transferId, ...transferData });
+        if (fee > 0) next.portfolios.find((portfolio) => portfolio.id === source.id).transactions.unshift({ id: id(), description: `Transfer fee to ${destination.name}`, category: "Personal transfer", amount: fee, inflow: false, createdAt });
       });
+      if (crossCurrency) setTransferMessage(`Transfer saved. Expected ${destination.currency.toUpperCase()} ${expectedReceived.toFixed(2)}; received ${destination.currency.toUpperCase()} ${actualReceived.toFixed(2)}. Effective rate: ${source.currency.toUpperCase()} ${(amount / actualReceived).toFixed(4)} per ${destination.currency.toUpperCase()}.`);
       setForm(null);
     },
     reportPortfolios = reportScope === "global" ? d.portfolios.filter((portfolio) => portfolio.currency === p.currency) : [p],
@@ -892,7 +900,7 @@ function App() {
                 .sort((a, b) => b.createdAt.localeCompare(a.createdAt))}
               p={p}
               del={removeTransaction}
-              edit={(transaction) => setEditing({ transaction, portfolioId: transaction.sourcePortfolio?.id || p.id })}
+              edit={(transaction) => transaction.transferRate ? setTransferMessage("Delete and recreate a cross-currency transfer to change its amounts.") : setEditing({ transaction, portfolioId: transaction.sourcePortfolio?.id || p.id })}
             />
           </>
         )}{" "}
@@ -1168,11 +1176,11 @@ function App() {
               {d.portfolios.map((x) => (
                 <option value={x.id}>{portfolioIcon(x)} From: {x.name}</option>
               ))}
-            </select><select name="destination" defaultValue={d.portfolios.find((x) => x.id !== p.id && x.currency === p.currency)?.id}>
-              {d.portfolios.filter((x) => x.id !== p.id && x.currency === p.currency).map((x) => (
+            </select><select name="destination" defaultValue={d.portfolios.find((x) => x.id !== p.id)?.id}>
+              {d.portfolios.filter((x) => x.id !== p.id).map((x) => (
                 <option value={x.id}>{portfolioIcon(x)} To: {x.name}</option>
               ))}
-            </select></> : <><select name="portfolio" defaultValue={p.id}>
+            </select><p className="section-hint">For different currencies, enter the quoted rate as source currency per destination currency. The app records the actual amount received and calculates the effective rate.</p><input name="transferRate" type="number" step=".0001" placeholder="Quoted transfer rate (cross-currency only)" /><input name="actualReceived" type="number" step=".01" placeholder="Actual amount received (cross-currency only)" /><input name="transferFee" type="number" min="0" step=".01" placeholder="Transfer fee in source currency (optional)" /></> : <><select name="portfolio" defaultValue={p.id}>
               {d.portfolios.map((x) => (
                 <option value={x.id}>{x.name}</option>
               ))}
