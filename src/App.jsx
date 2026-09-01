@@ -52,7 +52,14 @@ const id = () => crypto.randomUUID(),
     return frequency === "monthly" || (frequency === "annual" ? date.getMonth() + 1 === anchor : (date.getMonth() + 1 - anchor) % 6 === 0);
   },
   planPeriod = (plan, date = new Date()) => (plan.frequency || "monthly") === "annual" ? String(date.getFullYear()) : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
-  planCompleted = (plan, date = new Date()) => !planOccurs(plan, date) || plan.last === planPeriod(plan, date) || plan.skipped === planPeriod(plan, date),
+  planCompleted = (plan, date = new Date()) => !planOccurs(plan, date) || plan.last === planPeriod(plan, date) || plan.skipped === planPeriod(plan, date) || (plan.earlyPaid || []).includes(planPeriod(plan, date)),
+  nextPlanOccurrence = (plan, from = new Date()) => {
+    for (let offset = 1; offset <= 24; offset += 1) {
+      const candidate = new Date(from.getFullYear(), from.getMonth() + offset, 1);
+      if (planOccurs(plan, candidate)) return candidate;
+    }
+    return new Date(from.getFullYear(), from.getMonth() + 1, 1);
+  },
   planSort = (a, b) => {
     const order = { monthly: 0, semiAnnual: 1, annual: 2 };
     const frequency = (order[a.frequency || "monthly"] ?? 0) - (order[b.frequency || "monthly"] ?? 0);
@@ -63,26 +70,6 @@ const id = () => crypto.randomUUID(),
     return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
       .toISOString()
       .slice(0, 16);
-  },
-  planKey = (plan) => [
-    plan.description.trim().toLowerCase(),
-    plan.category,
-    Number(plan.amount).toFixed(2),
-    plan.portfolioId || "default",
-    plan.dueDay || 1,
-    Boolean(plan.savings),
-    plan.destinationId || "",
-    plan.frequency || "monthly",
-    plan.anchorMonth || 1,
-  ].join("|"),
-  dedupePlans = (plans) => {
-    const seen = new Set();
-    return plans.filter((plan) => {
-      const key = planKey(plan);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
   },
   seed = {
     selected: "main",
@@ -167,7 +154,7 @@ const fromFlutterState = (state) => ({
     caps: portfolio.categoryCaps || {},
     transactions: portfolio.transactions || [],
   })),
-  plans: dedupePlans((state.monthlyPlans || []).map((plan) => ({
+  plans: (state.monthlyPlans || []).map((plan) => ({
     id: plan.id,
     description: plan.description,
     category: plan.category,
@@ -181,7 +168,8 @@ const fromFlutterState = (state) => ({
     anchorMonth: plan.anchorMonth || 1,
     last: plan.lastCreatedMonth || "",
     skipped: plan.lastSkippedMonth || "",
-  }))),
+    earlyPaid: plan.paidEarlyPeriods || [],
+  })),
 });
 const toFlutterState = (data, previous) => ({
   ...previous,
@@ -197,7 +185,7 @@ const toFlutterState = (data, previous) => ({
   }),
   monthlyPlans: data.plans.map((plan) => {
     const existing = (previous.monthlyPlans || []).find((item) => item.id === plan.id) || {};
-    return { ...existing, id: plan.id, description: plan.description, category: plan.category, amount: plan.amount, savingsTransfer: Boolean(plan.savings), destinationPortfolioId: plan.destinationId || existing.destinationPortfolioId, portfolioId: plan.portfolioId || existing.portfolioId || data.selected, dueDay: plan.dueDay || existing.dueDay || 1, recurring: plan.recurring ?? existing.recurring ?? true, frequency: plan.frequency || existing.frequency || "monthly", anchorMonth: plan.anchorMonth || existing.anchorMonth || 1, lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null };
+    return { ...existing, id: plan.id, description: plan.description, category: plan.category, amount: plan.amount, savingsTransfer: Boolean(plan.savings), destinationPortfolioId: plan.destinationId || existing.destinationPortfolioId, portfolioId: plan.portfolioId || existing.portfolioId || data.selected, dueDay: plan.dueDay || existing.dueDay || 1, recurring: plan.recurring ?? existing.recurring ?? true, frequency: plan.frequency || existing.frequency || "monthly", anchorMonth: plan.anchorMonth || existing.anchorMonth || 1, lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null, paidEarlyPeriods: plan.earlyPaid || existing.paidEarlyPeriods || [] };
   }),
 });
 const fromSharedRecords = (records) => {
@@ -245,6 +233,7 @@ const fromSharedRecords = (records) => {
       anchorMonth: plan.anchorMonth || 1,
       last: plan.last || plan.lastCreatedMonth || "",
       skipped: plan.skipped || plan.lastSkippedMonth || "",
+      earlyPaid: plan.earlyPaid || plan.paidEarlyPeriods || [],
     };
   });
   const loans = active.filter((record) => record.record_type === "loan").map((record) => record.payload);
@@ -255,7 +244,7 @@ const fromSharedRecords = (records) => {
     globalCaps,
     categories: category.categories || cats,
     portfolios,
-    plans: dedupePlans(plans),
+    plans,
     loans,
   };
 };
@@ -266,7 +255,7 @@ const toSharedRecords = (userId, data) => [
     { user_id: userId, record_type: "portfolio", record_id: portfolio.id, payload: { id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), type: portfolio.type || "bank", iconKey: portfolio.iconKey, creditLimit: portfolio.creditLimit || 0, categoryCaps: portfolio.caps || {} } },
     ...portfolio.transactions.map((transaction) => ({ user_id: userId, record_type: "transaction", record_id: transaction.id, payload: { ...transaction, portfolioId: portfolio.id }, deleted_at: null })),
   ]),
-  ...dedupePlans(data.plans).map((plan) => ({ user_id: userId, record_type: "plan", record_id: plan.id, payload: { ...plan, frequency: plan.frequency || "monthly", anchorMonth: plan.anchorMonth || 1, savingsTransfer: Boolean(plan.savings), lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null } })),
+  ...data.plans.map((plan) => ({ user_id: userId, record_type: "plan", record_id: plan.id, payload: { ...plan, frequency: plan.frequency || "monthly", anchorMonth: plan.anchorMonth || 1, savingsTransfer: Boolean(plan.savings), lastCreatedMonth: plan.last || null, lastSkippedMonth: plan.skipped || null, paidEarlyPeriods: plan.earlyPaid || [] } })),
   ...(data.loans || []).map((loan) => ({ user_id: userId, record_type: "loan", record_id: loan.id, payload: loan })),
 ];
 const syncSharedRecords = async (userId, data) => {
@@ -559,6 +548,14 @@ function App() {
   const skipPlanTransaction = (plan) => {
     if (!confirm(`Skip ${plan.description} for this month? No transaction will be created.`)) return;
     up((next) => { next.plans.find((item) => item.id === plan.id).skipped = planPeriod(plan); });
+  };
+  const payPlanEarly = (plan) => {
+    const period = planPeriod(plan, nextPlanOccurrence(plan));
+    if (!confirm(`Mark ${plan.description} as paid for ${period}? No transaction will be created and the plan will not be changed.`)) return;
+    up((next) => {
+      const item = next.plans.find((candidate) => candidate.id === plan.id);
+      if (item) item.earlyPaid = [...new Set([...(item.earlyPaid || []), period])];
+    });
   };
   const trendMonths = Array.from({ length: 6 }, (_, index) => {
     const date = new Date(); date.setMonth(date.getMonth() - (5 - index));
@@ -873,6 +870,8 @@ function App() {
           {[...d.plans].sort(planSort).map((x) => {
             const skipped = x.skipped === planPeriod(x);
             const completed = planCompleted(x);
+            const nextPeriod = planPeriod(x, nextPlanOccurrence(x));
+            const nextPeriodPaid = (x.earlyPaid || []).includes(nextPeriod);
             return <article className="plan" key={x.id}>
               <span>{x.savings ? "◈" : icon[x.category] || "✨"}</span>
               <div>
@@ -888,6 +887,7 @@ function App() {
               </button>}
               {!completed && <button className="skip-plan" onClick={() => skipPlanTransaction(x)}>Skip this month</button>}
               {completed && <span className="plan-status">{!planOccurs(x) ? "Not due this month" : skipped ? "Skipped this period" : "Created this period"}</span>}
+              <button className="skip-plan" disabled={nextPeriodPaid} onClick={() => payPlanEarly(x)}>{nextPeriodPaid ? "Next period paid" : "Pay early"}</button>
             </article>;
           })}</div>
         </>}
