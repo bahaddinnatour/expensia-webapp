@@ -76,6 +76,7 @@ const id = () => crypto.randomUUID(),
     profile: "",
     readActivityIds: [],
     globalCaps: {},
+    capCycleStarts: {},
     loans: [],
     categories: cats,
     portfolios: [
@@ -141,6 +142,7 @@ const fromFlutterState = (state) => ({
   profile: state.name || "",
   readActivityIds: state.readActivityIds || [],
   globalCaps: Object.fromEntries(Object.entries(state.globalCategoryCaps || {}).map(([currency, caps]) => [currency.toLowerCase(), caps])),
+  capCycleStarts: Object.fromEntries(Object.entries(state.capCycleStarts || {}).map(([currency, start]) => [currency.toLowerCase(), start])),
   loans: state.loans || [],
   categories: state.categories || cats,
   portfolios: (state.portfolios || []).map((portfolio) => ({
@@ -177,6 +179,7 @@ const toFlutterState = (data, previous) => ({
   readActivityIds: data.readActivityIds || [],
   selectedId: data.selected,
   globalCategoryCaps: data.globalCaps || {},
+  capCycleStarts: data.capCycleStarts || previous.capCycleStarts || {},
   loans: data.loans || previous.loans || [],
   categories: data.categories,
   portfolios: data.portfolios.map((portfolio) => {
@@ -197,6 +200,7 @@ const fromSharedRecords = (records) => {
     .map((record) => ({ ...record.payload, type: record.payload.type || "bank", iconKey: record.payload.iconKey, creditLimit: record.payload.creditLimit || 0, caps: record.payload.categoryCaps || record.payload.caps || {}, transactions: [] }));
   if (!portfolios.length) return null;
   const globalCaps = Object.fromEntries(Object.entries(profile.globalCategoryCaps || {}).map(([currency, caps]) => [currency.toLowerCase(), structuredClone(caps)]));
+  const capCycleStarts = Object.fromEntries(Object.entries(profile.capCycleStarts || {}).map(([currency, start]) => [currency.toLowerCase(), start]));
   if (profile.capsSharedVersion !== 2) {
     portfolios.forEach((portfolio) => {
       const shared = globalCaps[portfolio.currency.toLowerCase()] ||= {};
@@ -242,6 +246,7 @@ const fromSharedRecords = (records) => {
     profile: profile.name || "",
     readActivityIds: profile.readActivityIds || [],
     globalCaps,
+    capCycleStarts,
     categories: category.categories || cats,
     portfolios,
     plans,
@@ -249,7 +254,7 @@ const fromSharedRecords = (records) => {
   };
 };
 const toSharedRecords = (userId, data) => [
-  { user_id: userId, record_type: "profile", record_id: "settings", payload: { name: data.profile, selectedId: data.selected, globalCategoryCaps: data.globalCaps || {}, capsSharedVersion: 2, readActivityIds: data.readActivityIds || [] } },
+  { user_id: userId, record_type: "profile", record_id: "settings", payload: { name: data.profile, selectedId: data.selected, globalCategoryCaps: data.globalCaps || {}, capCycleStarts: data.capCycleStarts || {}, capsSharedVersion: 2, readActivityIds: data.readActivityIds || [] } },
   { user_id: userId, record_type: "category", record_id: "all", payload: { categories: data.categories, icons: {} } },
   ...data.portfolios.flatMap((portfolio) => [
     { user_id: userId, record_type: "portfolio", record_id: portfolio.id, payload: { id: portfolio.id, name: portfolio.name, opening: portfolio.opening, currency: String(portfolio.currency).toLowerCase(), type: portfolio.type || "bank", iconKey: portfolio.iconKey, creditLimit: portfolio.creditLimit || 0, categoryCaps: portfolio.caps || {} } },
@@ -407,6 +412,8 @@ function App() {
     setAuthMessage(response.error ? response.error.message : create ? "Account created. Confirm your email once, then sign in." : "Signed in. Syncing your data...");
   };
   const p = d.portfolios.find((x) => x.id === d.selected),
+    capCycleStart = (currency) => new Date(d.capCycleStarts?.[currency.toLowerCase()] || `${mo()}-01T00:00:00`),
+    inCapCycle = (transaction, currency) => new Date(transaction.createdAt) >= capCycleStart(currency),
     up = (f) =>
       setD((x) => {
         const next = structuredClone(x);
@@ -438,7 +445,7 @@ function App() {
               (t) =>
                 !t.inflow &&
                 t.category === v.category &&
-                t.createdAt.slice(0, 7) === mo(),
+                inCapCycle(t, q.currency),
             )
             .reduce((s, t) => s + t.amount, 0) + +v.amount;
       if (
@@ -502,7 +509,7 @@ function App() {
     ),
     dashboard = d.portfolios.map((portfolio) => {
       const transactions = portfolio.transactions
-        .filter((transaction) => !transaction.transferId && transaction.createdAt.slice(0, 7) === mo());
+        .filter((transaction) => !transaction.transferId && inCapCycle(transaction, portfolio.currency));
       const inflow = transactions.filter((transaction) => transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0);
       const outflow = transactions.filter((transaction) => !transaction.inflow).reduce((sum, transaction) => sum + transaction.amount, 0);
       const netWorth = bal(portfolio);
@@ -523,8 +530,8 @@ function App() {
         warning: false,
       }))),
       ...dashboard.flatMap((summary) => summary.alerts.map((alert) => ({
-        id: `cap:${summary.portfolio.currency.toLowerCase()}:${summary.portfolio.id}:${alert.category}:${mo()}`,
-        title: alert.ratio >= 1 ? "Monthly cap exceeded" : "Monthly cap warning",
+        id: `cap:${summary.portfolio.currency.toLowerCase()}:${summary.portfolio.id}:${alert.category}:${capCycleStart(summary.portfolio.currency).toISOString()}`,
+        title: alert.ratio >= 1 ? "Cap exceeded" : "Cap warning",
         message: `${summary.portfolio.name}: ${alert.category} ${(alert.ratio * 100).toFixed(0)}% of ${fmt(summary.portfolio, alert.cap)}`,
         createdAt: new Date().toISOString(),
         warning: true,
@@ -772,7 +779,7 @@ function App() {
             })}
           </section>
         )}
-        {tab === "Projection" && <section className="dashboard"><p className="dashboard-intro">Overall cash left after this month's remaining category caps and regular planned expenses. Shared caps are counted once across all portfolios with the same currency.</p>{[...new Set(d.portfolios.filter((portfolio) => portfolio.type !== "creditCard").map((portfolio) => portfolio.currency))].map((currency) => { const pool = d.portfolios.filter((portfolio) => portfolio.type !== "creditCard" && portfolio.currency === currency); const template = pool[0]; const balance = pool.reduce((sum, portfolio) => sum + portfolio.opening + portfolio.transactions.reduce((net, tx) => net + (tx.inflow ? tx.amount : -tx.amount), 0), 0); const spent = d.portfolios.filter((portfolio) => portfolio.currency === currency).flatMap((portfolio) => portfolio.transactions).filter((tx) => !tx.inflow && tx.createdAt.slice(0, 7) === mo() && !tx.transferId).reduce((map, tx) => ((map[tx.category] = (map[tx.category] || 0) + tx.amount), map), {}); const caps = d.globalCaps[currency.toLowerCase()] || {}; const pending = d.plans.filter((plan) => !plan.savings && !planCompleted(plan) && planOccurs(plan) && d.portfolios.find((portfolio) => portfolio.id === plan.portfolioId)?.currency === currency).reduce((map, plan) => ((map[plan.category] = (map[plan.category] || 0) + plan.amount), map), {}); const categories = new Set([...Object.keys(caps), ...Object.keys(pending)]); const remaining = [...categories].reduce((sum, category) => { const target = Math.max(Number(caps[category] || 0), Number(pending[category] || 0)); return sum + Math.max(0, target - Number(spent[category] || 0)); }, 0); return <article className="dashboard-card" key={currency}><small>{currency} · OVERALL MONTH PROJECTION</small><h3>All cash portfolios</h3><b>{fmt(template, balance - remaining)}</b><p>Current cash {fmt(template, balance)} · Remaining commitments {fmt(template, remaining)}</p></article>; })}</section>}
+        {tab === "Projection" && <section className="dashboard"><p className="dashboard-intro">Overall cash left after the current cap-cycle commitments and regular planned expenses. Shared caps are counted once across all portfolios with the same currency.</p>{[...new Set(d.portfolios.filter((portfolio) => portfolio.type !== "creditCard").map((portfolio) => portfolio.currency))].map((currency) => { const pool = d.portfolios.filter((portfolio) => portfolio.type !== "creditCard" && portfolio.currency === currency); const template = pool[0]; const balance = pool.reduce((sum, portfolio) => sum + portfolio.opening + portfolio.transactions.reduce((net, tx) => net + (tx.inflow ? tx.amount : -tx.amount), 0), 0); const spent = d.portfolios.filter((portfolio) => portfolio.currency === currency).flatMap((portfolio) => portfolio.transactions).filter((tx) => !tx.inflow && inCapCycle(tx, currency) && !tx.transferId).reduce((map, tx) => ((map[tx.category] = (map[tx.category] || 0) + tx.amount), map), {}); const caps = d.globalCaps[currency.toLowerCase()] || {}; const pending = d.plans.filter((plan) => !plan.savings && !planCompleted(plan) && planOccurs(plan) && d.portfolios.find((portfolio) => portfolio.id === plan.portfolioId)?.currency === currency).reduce((map, plan) => ((map[plan.category] = (map[plan.category] || 0) + plan.amount), map), {}); const categories = new Set([...Object.keys(caps), ...Object.keys(pending)]); const remaining = [...categories].reduce((sum, category) => { const target = Math.max(Number(caps[category] || 0), Number(pending[category] || 0)); return sum + Math.max(0, target - Number(spent[category] || 0)); }, 0); return <article className="dashboard-card" key={currency}><small>{currency} · CURRENT CAP PROJECTION</small><h3>All cash portfolios</h3><b>{fmt(template, balance - remaining)}</b><p>Current cash {fmt(template, balance)} · Remaining commitments {fmt(template, remaining)}</p></article>; })}</section>}
         {tab === "Home" && (
           <>
             <section className="hero">
@@ -827,7 +834,7 @@ function App() {
               let cap = reportScope === "global" ? d.globalCaps[p.currency.toLowerCase()]?.[c] : p.caps[c],
                 used = reportOut
                   .filter(
-                    (t) => t.category === c && t.createdAt.slice(0, 7) === mo(),
+                    (t) => t.category === c && inCapCycle(t, p.currency),
                   )
                   .reduce((s, t) => s + t.amount, 0),
                 r = cap ? used / cap : n / total;
@@ -1093,7 +1100,7 @@ function App() {
               Monthly category caps <span>{capsOpen ? "-" : "+"}</span>
             </button>
             {capsOpen &&
-              <section className="caps-settings"><div className="cap-mode"><div><b>Cap scope</b><small>{capsShared ? `One cap shared by all ${p.currency} portfolios.` : `A separate cap for ${p.name}.`}</small></div><select value={capsShared ? "shared" : "portfolio"} onChange={(event) => setCapsShared(event.target.value === "shared")}><option value="portfolio">Per portfolio</option><option value="shared">Shared: {p.currency}</option></select></div>
+              <section className="caps-settings"><div className="cap-mode"><div><b>Cap scope</b><small>{capsShared ? `One cap shared by all ${p.currency} portfolios.` : `A separate cap for ${p.name}.`}</small></div><select value={capsShared ? "shared" : "portfolio"} onChange={(event) => setCapsShared(event.target.value === "shared")}><option value="portfolio">Per portfolio</option><option value="shared">Shared: {p.currency}</option></select></div><div className="cap-mode"><div><b>Current cap cycle</b><small>Started {capCycleStart(p.currency).toLocaleString()}. Expenses stay counted until you reset after salary.</small></div><button type="button" className="remove-cap" onClick={() => { if (confirm(`Reset ${p.currency} cap usage now? Earlier expenses remain in history but stop counting toward the current cap.`)) up((x) => { (x.capCycleStarts ||= {})[p.currency.toLowerCase()] = new Date().toISOString(); }); }}>Reset cap usage</button></div>
               {d.categories.filter((c) => capsShared ? d.globalCaps[p.currency.toLowerCase()]?.[c] : p.caps[c]).map((c) => (
                 <div className="cap-editor" key={c}>
                   <span className={`cap-scope ${capsShared ? "shared" : ""}`}>{capsShared ? `Shared ${p.currency}` : "Per portfolio"}</span>
