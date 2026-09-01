@@ -412,7 +412,7 @@ function App() {
     setAuthMessage(response.error ? response.error.message : create ? "Account created. Confirm your email once, then sign in." : "Signed in. Syncing your data...");
   };
   const p = d.portfolios.find((x) => x.id === d.selected),
-    capCycleStart = (currency) => new Date(d.capCycleStarts?.[currency.toLowerCase()] || `${mo()}-01T00:00:00`),
+    capCycleStart = (currency) => new Date(d.capCycleStarts?.[currency.toLowerCase()] || 0),
     inCapCycle = (transaction, currency) => new Date(transaction.createdAt) >= capCycleStart(currency),
     up = (f) =>
       setD((x) => {
@@ -1100,7 +1100,7 @@ function App() {
               Monthly category caps <span>{capsOpen ? "-" : "+"}</span>
             </button>
             {capsOpen &&
-              <section className="caps-settings"><div className="cap-mode"><div><b>Cap scope</b><small>{capsShared ? `One cap shared by all ${p.currency} portfolios.` : `A separate cap for ${p.name}.`}</small></div><select value={capsShared ? "shared" : "portfolio"} onChange={(event) => setCapsShared(event.target.value === "shared")}><option value="portfolio">Per portfolio</option><option value="shared">Shared: {p.currency}</option></select></div><div className="cap-mode"><div><b>Current cap cycle</b><small>Started {capCycleStart(p.currency).toLocaleString()}. Expenses stay counted until you reset after salary.</small></div><button type="button" className="remove-cap" onClick={() => { if (confirm(`Reset ${p.currency} cap usage now? Earlier expenses remain in history but stop counting toward the current cap.`)) up((x) => { (x.capCycleStarts ||= {})[p.currency.toLowerCase()] = new Date().toISOString(); }); }}>Reset cap usage</button></div>
+              <section className="caps-settings"><div className="cap-mode"><div><b>Cap scope</b><small>{capsShared ? `One cap shared by all ${p.currency} portfolios.` : `A separate cap for ${p.name}.`}</small></div><select value={capsShared ? "shared" : "portfolio"} onChange={(event) => setCapsShared(event.target.value === "shared")}><option value="portfolio">Per portfolio</option><option value="shared">Shared: {p.currency}</option></select></div><div className="cap-mode"><div><b>Current cap cycle</b><small>{d.capCycleStarts?.[p.currency.toLowerCase()] ? `Started ${capCycleStart(p.currency).toLocaleString()}.` : "All recorded expenses are included."} Reset after salary to start a new cycle.</small></div><button type="button" className="remove-cap" onClick={() => { if (confirm(`Reset ${p.currency} cap usage now? Earlier expenses remain in history but stop counting toward the current cap.`)) up((x) => { (x.capCycleStarts ||= {})[p.currency.toLowerCase()] = new Date().toISOString(); }); }}>Reset cap usage</button></div>
               {d.categories.filter((c) => capsShared ? d.globalCaps[p.currency.toLowerCase()]?.[c] : p.caps[c]).map((c) => (
                 <div className="cap-editor" key={c}>
                   <span className={`cap-scope ${capsShared ? "shared" : ""}`}>{capsShared ? `Shared ${p.currency}` : "Per portfolio"}</span>
