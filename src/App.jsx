@@ -65,6 +65,11 @@ const id = () => crypto.randomUUID(),
     const frequency = (order[a.frequency || "monthly"] ?? 0) - (order[b.frequency || "monthly"] ?? 0);
     return frequency || Number(a.dueDay || 1) - Number(b.dueDay || 1) || a.description.localeCompare(b.description);
   },
+  manualPlanDuplicateKey = (plan) => [
+    plan.description.trim().toLowerCase(), plan.category, Number(plan.amount).toFixed(2),
+    plan.portfolioId || "default", plan.dueDay || 1, Boolean(plan.savings),
+    plan.destinationId || "", plan.frequency || "monthly", plan.anchorMonth || 1,
+  ].join("|"),
   localDateTime = (value) => {
     const date = new Date(value);
     return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
@@ -103,26 +108,8 @@ const id = () => crypto.randomUUID(),
         transactions: [],
       },
     ],
-    plans: [
-      ["Rent reserve", "Rent & Housing", 5833, 1],
-      ["School fees reserve", "Education", 2250, 1],
-      ["Dependent fees reserve", "Dependents", 1250, 1],
-      ["Existing loan installment", "Loans & Debt", 5431],
-      ["Company loan installment", "Loans & Debt", 3750],
-      ["Housemaid", "Household Help", 1000],
-      ["Groceries & food", "Grocery", 3000],
-      ["Utilities & telecom", "Utilities", 1500],
-      ["Two cars", "Car care", 1800],
-      ["Family personal expenses", "Personal transfer", 1000],
-      ["Restaurants & entertainment", "Restaurant", 500],
-    ].map((x, i) => ({
-      id: id(),
-      description: x[0],
-      category: x[1],
-      amount: x[2],
-      savings: !!x[3],
-      last: "",
-    })),
+    // Plans are always user-created. Never bootstrap recurring expenses.
+    plans: [],
   };
 const fmt = (p, n) =>
   new Intl.NumberFormat("en", {
@@ -672,7 +659,7 @@ function App() {
   const removeDuplicatePlans = () => {
     const seen = new Set();
     const duplicates = d.plans.filter((plan) => {
-      const key = planKey(plan);
+      const key = manualPlanDuplicateKey(plan);
       if (seen.has(key)) return true;
       seen.add(key);
       return false;
