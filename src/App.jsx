@@ -264,6 +264,7 @@ function App() {
   const [reportScope, setReportScope] = useState("global");
   const [trendMonth, setTrendMonth] = useState(mo());
   const [editing, setEditing] = useState(null);
+  const [categoryDetails, setCategoryDetails] = useState(null);
   const [capsOpen, setCapsOpen] = useState(false);
   const [capsShared, setCapsShared] = useState(false);
   const [newCap, setNewCap] = useState(null);
@@ -401,6 +402,15 @@ function App() {
   const p = d.portfolios.find((x) => x.id === d.selected),
     capCycleStart = (currency) => new Date(d.capCycleStarts?.[currency.toLowerCase()] || 0),
     inCapCycle = (transaction, currency) => new Date(transaction.createdAt) >= capCycleStart(currency),
+    categoryDetailRows = categoryDetails
+      ? (categoryDetails.scope === "global"
+        ? d.portfolios
+          .filter((portfolio) => portfolio.currency === p.currency)
+          .flatMap((portfolio) => portfolio.transactions.map((transaction) => ({ ...transaction, sourcePortfolio: portfolio })))
+        : p.transactions.map((transaction) => ({ ...transaction, sourcePortfolio: p })))
+        .filter((transaction) => !transaction.inflow && !transaction.transferId && transaction.category === categoryDetails.category)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      : [],
     up = (f) =>
       setD((x) => {
         const next = structuredClone(x);
@@ -826,7 +836,19 @@ function App() {
                   .reduce((s, t) => s + t.amount, 0),
                 r = cap ? used / cap : n / total;
               return (
-                <article className="cap">
+                <article
+                  className="cap cap-clickable"
+                  role="button"
+                  tabIndex="0"
+                  onClick={() => setCategoryDetails({ category: c, scope: reportScope })}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setCategoryDetails({ category: c, scope: reportScope });
+                    }
+                  }}
+                  aria-label={`Show ${c} transactions`}
+                >
                   <span>
                     {icon[c] || "✨"} {c}
                   </span>
@@ -1192,7 +1214,7 @@ function App() {
           </form>
         </div>
       )}
-      {editing && (
+        {editing && (
         <div className="modal">
           <form onSubmit={saveTransactionEdit}>
             <h2>Edit transaction</h2>
@@ -1213,7 +1235,23 @@ function App() {
             <button type="button" onClick={() => setEditing(null)}>Cancel</button>
           </form>
         </div>
-      )}
+        )}
+        {categoryDetails && (
+          <div className="modal" role="dialog" aria-modal="true" aria-label={`${categoryDetails.category} transactions`}>
+            <section className="category-details">
+              <div className="category-details-heading">
+                <div>
+                  <small>{categoryDetails.scope === "global" ? "ALL PORTFOLIOS" : p.name.toUpperCase()}</small>
+                  <h2>{icon[categoryDetails.category] || "*"} {categoryDetails.category}</h2>
+                </div>
+                <button type="button" className="category-details-close" onClick={() => setCategoryDetails(null)} aria-label="Close">&#215;</button>
+              </div>
+              <p>{categoryDetailRows.length} related outflow transaction{categoryDetailRows.length === 1 ? "" : "s"}</p>
+              {categoryDetailRows.length ? <Rows rows={categoryDetailRows} p={p} /> : <p>No related transactions found.</p>}
+              <button type="button" onClick={() => setCategoryDetails(null)}>Close</button>
+            </section>
+          </div>
+        )}
     </div>
   );
 }
